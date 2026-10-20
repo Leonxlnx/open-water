@@ -1,0 +1,123 @@
+# Open Water
+
+A real-time, physically based ocean in pure WebGL2, with weather you can steer: calm golden
+hours, rising wind, rain, squall lines, gales and lightning. There are no textures, models or
+image assets. Every wave, cloud, foam bubble and raindrop is computed. The only recorded
+material is sound (rain and thunder).
+
+**Film:** [`media/open-water.mp4`](media/open-water.mp4), one minute, rendered offline by the same engine.
+
+## What is simulated
+
+**Waves.** Tessendorf FFT synthesis on the GPU with four cascades (640 m down to 3.7 m) and
+capillary-gravity dispersion. The wind sea uses the Elfouhaily et al. (1997) unified spectrum,
+whose short-wave regime is calibrated to Cox–Munk slope statistics. Spreading is Donelan–Banner
+near the peak and ECKV for short waves, plus a narrow-band swell. Choppy displacement gives
+trochoidal crests. Significant wave heights match the Beaufort table (Bf 5: 2.1 m, Bf 7: 4.8 m,
+Bf 9: 9.2 m), and the GPU statistics are checked against the spectrum (`tools/hscheck.mjs`).
+
+**Light on water.** A slope-variance (LEAN) BRDF after Bruneton, Neyret and Holzschuch (2010)
+makes geometry, normals and BRDF hand over seamlessly. Sub-cascade roughness is the Cox–Munk
+remainder, so sun glitter breaks into sparkles up close and becomes a smooth path towards the
+horizon. Also modeled: averaged Fresnel, water-leaving radiance from ocean-optics remote-sensing
+reflectance (deep ultramarine that turns grey-green as breaking waves fill the water with
+bubbles), backlit crest scattering, cloud shadows drifting over the sea, Earth curvature and
+aerial perspective.
+
+**Foam.** Whitecaps form where the surface Jacobian folds. The breaking threshold is expressed
+in standard deviations of the Jacobian and calibrated so coverage follows the Monahan &
+O'Muircheartaigh (1980) whitecap law (`tools/foam.mjs`). Foam decays into marbled lace, and at
+gale force it is drawn into streaks along the wind.
+
+**Sky.** The atmosphere follows Hillaire (2020): transmittance, multiple-scattering, sky-view
+and aerial-perspective LUTs. Clouds are volumetric, built from procedural Perlin–Worley noise
+with Beer–powder lighting, Wrenninge multiple-scattering octaves and two-stream diffusion
+through thick storm decks. A squall front moves the weather across the sea.
+
+**Rain and storm.** Drop sizes follow Marshall–Palmer, with terminal velocities from Atlas et
+al. (1973). Streak photometry follows Garg & Nayar: a drop covers its streak only D/(v·T) of
+the exposure. Ring waves expand at the capillary minimum speed, and splash jets rise where drops
+land. Rain curtains have shafts, and visibility falls with rain rate. Lightning has multiple
+return strokes, a fractal branched channel and in-cloud illumination. Thunder arrives at 343 m/s
+and loses its high frequencies with distance.
+
+**Camera and image.** The camera floats on the sea, heaving, pitching and rolling with waves
+longer than a small boat. Exposure uses incident-light metering with partial white balance,
+followed by AgX tone mapping, an energy-conserving bloom and film grain.
+
+**Sound.** Sea wash, whitecap hiss and gusting wind are synthesized from the same weather state.
+Rain and thunder are recordings. The film's soundtrack is rendered by the same engine in an
+`OfflineAudioContext`.
+
+## Controls
+
+| | |
+| --- | --- |
+| Drag | look around |
+| Scroll | rise or sink (below ~12 m the camera rides the waves) |
+| `1`–`4` | Calm · Breeze · Rain · Storm |
+| `T` | tuning sheet: wind, waves, chop, rain, clouds, lightning, sun |
+| `L` | lightning strike |
+| `M` | sound |
+| `H` | hide the interface |
+| `F` | fullscreen |
+
+URL parameters: `?preset=storm`, any weather key (for example `?wind=14&rain=0.4`), `elev` and
+`az` for the sun, `h` for eye height, and `q=high` for film quality.
+
+## Run
+
+```bash
+npm run dev
+```
+
+Then open http://localhost:5173. No build step and no runtime dependencies. You need a browser
+with WebGL2 and `EXT_color_buffer_float`, which covers every current desktop browser. The
+default quality tier targets integrated GPUs; add `?q=high` for the film settings.
+
+## Render the film
+
+```bash
+npm install
+npm run dev
+npm run render -- --fps 60 --w 1920 --h 1080 --out out/open-water.mp4
+```
+
+The renderer drives headless Chrome deterministically, frame by frame. Frames are piped into
+ffmpeg/x264 and the soundtrack is muxed in. The timeline is in `src/film.js`.
+
+## Layout
+
+```
+src/ocean/   FFT cascades, spectrum, foam, surface shading, surface probe
+src/sky/     atmosphere LUTs, volumetric clouds, sky and reflection probe
+src/fx/      rain, ripples, lightning, post-processing
+src/audio/   sound engine (live and offline)
+src/film.js  the film timeline
+tools/       dev server, screenshots, calibration (wave heights, foam coverage), profiling
+render/      offline film renderer
+```
+
+## References
+
+- J. Tessendorf, *Simulating Ocean Water*, SIGGRAPH course notes, 2001.
+- T. Elfouhaily, B. Chapron, K. Katsaros, D. Vandemark, *A unified directional spectrum for long
+  and short wind-driven waves*, JGR 102(C7), 1997.
+- M. Donelan, J. Hamilton, W. Hui, *Directional spectra of wind-generated waves*, 1985.
+- E. Bruneton, F. Neyret, N. Holzschuch, *Real-time Realistic Ocean Lighting using Seamless
+  Transitions from Geometry to BRDF*, Computer Graphics Forum, 2010.
+- C. Cox, W. Munk, *Measurement of the Roughness of the Sea Surface from Photographs of the
+  Sun's Glitter*, JOSA, 1954.
+- E. Monahan, I. O'Muircheartaigh, *Optimal power-law description of oceanic whitecap coverage
+  dependence on wind speed*, JPO, 1980.
+- S. Hillaire, *A Scalable and Production Ready Sky and Atmosphere Rendering Technique*, EGSR 2020.
+- A. Schneider, *The Real-time Volumetric Cloudscapes of Horizon Zero Dawn*, SIGGRAPH 2015.
+- M. Wrenninge et al., *Oz: The Great and Volumetric*, SIGGRAPH 2013 talk.
+- K. Garg, S. Nayar, *Photorealistic Rendering of Rain Streaks*, SIGGRAPH 2006.
+- J. Marshall, W. Palmer, *The distribution of raindrops with size*, 1948.
+- T. Sobotka, AgX display transform.
+
+## License
+
+The code is MIT licensed. The audio recordings keep their Creative Commons licenses; see
+[assets/audio/CREDITS.md](assets/audio/CREDITS.md).

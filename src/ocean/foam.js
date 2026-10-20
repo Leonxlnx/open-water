@@ -77,6 +77,7 @@ export const FOAM_GLSL = `
 uniform sampler2D uFoamTex;
 uniform vec2 uWindDir;
 uniform float uFoamStretch;   // 0: isotropic patches, 1: fully streaky (gale)
+vec2 foamBump = vec2(0.0);
 vec2 foamCoverage(vec2 xz, float f, float t, float dist) {
   if (f < 0.003) return vec2(0.0);
   vec2 w = uWindDir;
@@ -89,15 +90,26 @@ vec2 foamCoverage(vec2 xz, float f, float t, float dist) {
   float T = big.r * 0.4 + a.r * 0.38 + b.r * 0.22;
   T = mix(T, mix(T, s.b * 0.8 + big.g * 0.25, 0.6), uFoamStretch);
   float F = (1.0 - exp(-f * 1.5)) * 0.92;
-  // fresh foam is a solid sheet; decaying foam opens up along the threshold field
-  float edge = 0.07 + fwidth(T) * 0.7;
-  float cov = clamp((F * 1.15 - T) / edge + 0.1, 0.0, 1.0);
+  // fresh foam is a dense mass; decaying foam opens up along the threshold field.
+  // Bubble noise dithers the boundary so it reads as a froth edge, not a painted outline.
+  float margin = F * 1.15 - T + (b.g - 0.5) * 0.16;
+  float edge = 0.09 + fwidth(T) * 0.7;
+  float cov = clamp(margin / edge + 0.1, 0.0, 1.0);
   // far away: sub-pixel structure averages out to the expected (energy-conserving) coverage
   vec2 g = max(abs(dFdx(p)), abs(dFdy(p))) / 5.5 * 1024.0;
   float far = smoothstep(2.5, 6.5, log2(max(max(g.x, g.y), 1e-3)));
   cov = mix(cov, clamp(F * 1.25, 0.0, 1.0), far);
   float bub = mix(a.g * 0.45 + b.g * 0.35 + big.r * 0.2, 0.8, far);
-  float thick = clamp(F * 1.4, 0.0, 1.0) * bub;
+  // optical thickness: dense where the foam far exceeds its threshold, thin near its edges
+  float thick = mix(smoothstep(0.0, 0.45, margin), clamp(F * 1.4, 0.0, 1.0), far) * bub;
+  // relief of the bubble mass: world-space slope of the structure field (treated as ~15 cm of height),
+  // recovered from screen derivatives, for side-lit shading of the foam
+  vec2 dpx = dFdx(p), dpy = dFdy(p);
+  mat2 Mj = mat2(dpx.x, dpy.x, dpx.y, dpy.y);
+  float det = determinant(Mj);
+  vec2 grad = abs(det) > 1e-12 ? inverse(Mj) * vec2(dFdx(T), dFdy(T)) : vec2(0.0);
+  grad = clamp(grad * 0.15, vec2(-1.5), vec2(1.5)) * (1.0 - far);
+  foamBump = grad.x * w + grad.y * vec2(-w.y, w.x);
   return vec2(cov, thick);
 }
 `;

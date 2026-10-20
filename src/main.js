@@ -10,6 +10,7 @@ import { Clouds } from './sky/clouds.js';
 import { Post } from './fx/post.js';
 import { Rain } from './fx/rain.js';
 import { Lightning } from './fx/lightning.js';
+import { Spray } from './fx/spray.js';
 import { Weather } from './weather.js';
 import { Profiler } from './profiler.js';
 import { UI, UI_CSS } from './ui.js';
@@ -41,6 +42,7 @@ export class App {
     this.probe = new OceanProbe(gl);
     this.rain = new Rain(gl);
     this.lightning = new Lightning(gl);
+    this.spray = new Spray(gl);
     this.atmo = new Atmosphere(gl);
     this.sky = new Sky(gl);
     this.clouds = new Clouds(gl);
@@ -242,6 +244,8 @@ export class App {
     const pixelAngle = this.cam.fov / this.h;
     const fxU = { viewProj: M.vp, camPos: this.cam.pos, pixelAngle };
     this.lightning.draw({ ...fxU, fogDensity });
+    const windVec = [Math.cos(wd) * S.wind, Math.sin(wd) * S.wind];
+    this.spray.draw({ ...fxU, skyU, time: t, wind: S.wind, windVec, disp: ot.disp.slice(0, 3), sizes: ot.sizes, flash: flashRGB });
     this.rain.draw({
       ...fxU, skyU, rain: L.rain, time: t, exposure: 1 / 60,
       wind: [Math.cos(wd) * S.wind * 0.8, Math.sin(wd) * S.wind * 0.8],

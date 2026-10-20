@@ -176,7 +176,7 @@ void main() {
     // bubble layer: thick fresh foam is a bright diffuse scatterer (albedo ~0.8);
     // thin residual foam is translucent and picks up the water's blue-green
     float thick = fc.y;
-    vec3 Nf = normalize(vec3(-s.x * 0.5, 1.0, -s.y * 0.5));
+    vec3 Nf = normalize(vec3(-s.x * 0.5 + foamBump.x, 1.0, -s.y * 0.5 + foamBump.y));
     float wrapL = max((dot(Nf, L) + 0.35) / 1.35, 0.0);
     vec3 Ein = uSunE * sunVis * wrapL + uSkyE + uFlash;
     float albedo = mix(0.32, 0.86, thick);
