@@ -334,8 +334,34 @@ float fogPathLength(vec3 dir, float dist) {
   float toTop = dir.y > 0.0 ? uFogTop / max(dir.y, 0.015) : 1e9;
   return min(dist, toTop);
 }
+// Squall front: rain curtains beyond the line dot(xz, n) = offset, ramping over +-width.
+uniform vec4 uFogFront;   // xy normal (towards the storm), z offset (m), w width (0 = off)
+uniform vec2 uFogStorm;   // storm-side extinction (1/m), storm-side brightness factor
+uniform vec2 uFogCam;     // camera xz
+// antiderivative of the linear ramp clamp((u + w) / 2w, 0, 1)
+float rampInt(float u, float w) { return u < -w ? 0.0 : (u > w ? u : (u + w) * (u + w) / (4.0 * w)); }
+float fogHash(float x) { return fract(sin(x * 91.17) * 43758.5453); }
+float fogNoise(float x) { float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(fogHash(i), fogHash(i + 1.0), f); }
 vec3 applyFog(vec3 col, vec3 dir, float dist) {
-  float T = exp(-uFogDensity * fogPathLength(dir, dist));
-  return mix(fogRadiance(dir), col, T);
+  float L = fogPathLength(dir, dist);
+  float tau = uFogDensity * L;
+  float stormFrac = 0.0;
+  if (uFogFront.w > 0.0) {
+    vec2 n = uFogFront.xy;
+    float w = uFogFront.w;
+    float s0 = dot(uFogCam, n) - uFogFront.z;
+    float a = dot(dir.xz, n);
+    float m = abs(a) < 1e-5 ? clamp((s0 + w) / (2.0 * w), 0.0, 1.0) * L : (rampInt(s0 + a * L, w) - rampInt(s0, w)) / a;
+    // rain shafts: curtain density varies along the front where the ray crosses it
+    float tc = abs(a) > 1e-5 ? -s0 / a : 0.0;
+    vec2 xc = uFogCam + dir.xz * max(tc, 0.0);
+    float along = dot(xc, vec2(-n.y, n.x));
+    float shafts = 0.55 + 0.9 * fogNoise(along / 1700.0) * (0.6 + 0.4 * fogNoise(along / 430.0 + 7.0));
+    float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0);
+    tau += st;
+    stormFrac = st / max(tau, 1e-6);
+  }
+  float T = exp(-tau);
+  return mix(fogRadiance(dir) * mix(1.0, uFogStorm.y, stormFrac), col, T);
 }
 `;

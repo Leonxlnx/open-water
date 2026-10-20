@@ -6,14 +6,15 @@ const PROBE_FS = `
 uniform sampler2D uDisp[3];
 uniform sampler2D uSlope[3];
 uniform float uSize[4];
+uniform float uTexel[4];
 uniform vec2 uXZ;
 uniform float uFootprint;   // metres: waves shorter than this barely move the boat
 out vec4 o;
 vec3 disp(vec2 xz) {
-  float l = log2(uFootprint * 256.0);
-  vec3 D = textureLod(uDisp[0], xz / uSize[0], max(l - log2(uSize[0]), 0.0)).xyz;
-  D += textureLod(uDisp[1], xz / uSize[1], max(l - log2(uSize[1]), 0.0)).xyz;
-  D += textureLod(uDisp[2], xz / uSize[2], max(l - log2(uSize[2]), 0.0)).xyz;
+  float l = log2(uFootprint);
+  vec3 D = textureLod(uDisp[0], xz / uSize[0], max(l - log2(uTexel[0]), 0.0)).xyz;
+  D += textureLod(uDisp[1], xz / uSize[1], max(l - log2(uTexel[1]), 0.0)).xyz;
+  D += textureLod(uDisp[2], xz / uSize[2], max(l - log2(uTexel[2]), 0.0)).xyz;
   return D;
 }
 void main() {
@@ -23,10 +24,10 @@ void main() {
   for (int k = 0; k < 4; k++) x0 = uXZ - disp(x0).xz;
   vec3 D = disp(x0);
   if (i == 0) { o = vec4(D, 1.0); return; }
-  float l = log2(uFootprint * 1.5 * 256.0);
-  vec2 s = textureLod(uSlope[0], x0 / uSize[0], max(l - log2(uSize[0]), 0.0)).xy;
-  s += textureLod(uSlope[1], x0 / uSize[1], max(l - log2(uSize[1]), 0.0)).xy;
-  s += textureLod(uSlope[2], x0 / uSize[2], max(l - log2(uSize[2]), 0.0)).xy;
+  float l = log2(uFootprint * 1.5);
+  vec2 s = textureLod(uSlope[0], x0 / uSize[0], max(l - log2(uTexel[0]), 0.0)).xy;
+  s += textureLod(uSlope[1], x0 / uSize[1], max(l - log2(uTexel[1]), 0.0)).xy;
+  s += textureLod(uSlope[2], x0 / uSize[2], max(l - log2(uTexel[2]), 0.0)).xy;
   o = vec4(s, 0.0, 1.0);
 }`;
 
@@ -60,7 +61,7 @@ export class OceanProbe {
     }
     if (this.fence && !sync) return this.result;
     fullscreen(gl, this.prog, {
-      uDisp: ot.disp.slice(0, 3), uSlope: ot.slope.slice(0, 3), uSize: ot.sizes, uXZ: xz, uFootprint: footprint,
+      uDisp: ot.disp.slice(0, 3), uSlope: ot.slope.slice(0, 3), uSize: ot.sizes, uTexel: ot.texels, uXZ: xz, uFootprint: footprint,
     }, this.target);
     if (sync) {
       gl.readPixels(0, 0, 2, 1, gl.RGBA, gl.FLOAT, this.data);

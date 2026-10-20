@@ -214,37 +214,40 @@ void main() {
 }`;
 
 export class Ocean {
-  constructor(gl) {
+  // res: FFT size per cascade (power of two). Fine cascades can run at 128 on slower GPUs.
+  constructor(gl, res = [N, N, N, N]) {
     this.gl = gl;
-    this.n = N;
-    this.cascades = CASCADES.map((c) => ({ ...c }));
+    this.cascades = CASCADES.map((c, i) => ({ ...c, N: res[i] }));
     const dk = (L) => (2 * Math.PI) / L;
     // band limits: cascade i covers [6*dk_i, 6*dk_{i+1})
     for (let i = 0; i < this.cascades.length; i++) {
       const c = this.cascades[i];
       c.kmin = i === 0 ? dk(c.L) * 0.5 : 6 * dk(c.L);
       c.kmax = i === this.cascades.length - 1 ? 1e9 : 6 * dk(this.cascades[i + 1].L);
+      c.texel = c.L / c.N;
     }
     this.progSpectrum = new Program(gl, FULLSCREEN_VS, SPECTRUM_FS, { label: 'spectrum' });
     this.progEvolve = new Program(gl, FULLSCREEN_VS, EVOLVE_FS, { label: 'evolve' });
     this.progFFT = new Program(gl, FULLSCREEN_VS, FFT_FS, { label: 'fft' });
     this.progAssemble = new Program(gl, FULLSCREEN_VS, ASSEMBLE_FS, { label: 'assemble' });
 
-    const f32 = (w = N) => new Texture(gl, { w, h: w, format: 'rgba32f', filter: 'nearest' });
-    // shared FFT ping-pong (two MRT pairs)
-    this.fftA = [f32(), f32()];
-    this.fftB = [f32(), f32()];
-    this.tgtA = new Target(gl, this.fftA);
-    this.tgtB = new Target(gl, this.fftB);
+    const f32 = (w) => new Texture(gl, { w, h: w, format: 'rgba32f', filter: 'nearest' });
+    // shared FFT ping-pong buffers (two MRT pairs) per resolution
+    this.fft = {};
+    for (const n of new Set(res)) {
+      const A = [f32(n), f32(n)], B = [f32(n), f32(n)];
+      this.fft[n] = { A, B, tA: new Target(gl, A), tB: new Target(gl, B) };
+    }
 
     const r = rng(1337);
     this.cascades.forEach((c, i) => {
-      const noise = new Float32Array(N * N * 4);
+      const n = c.N;
+      const noise = new Float32Array(n * n * 4);
       for (let j = 0; j < noise.length; j++) noise[j] = r.gauss();
-      c.noise = new Texture(gl, { w: N, h: N, format: 'rgba32f', filter: 'nearest', data: noise });
-      c.h0 = f32();
+      c.noise = new Texture(gl, { w: n, h: n, format: 'rgba32f', filter: 'nearest', data: noise });
+      c.h0 = f32(n);
       c.h0Target = new Target(gl, [c.h0]);
-      const mk = () => new Texture(gl, { w: N, h: N, format: 'rgba16f', wrap: 'repeat', mips: true, aniso: 16 });
+      const mk = () => new Texture(gl, { w: n, h: n, format: 'rgba16f', wrap: 'repeat', mips: true, aniso: 16 });
       c.disp = [mk(), mk()];
       c.slope = [mk(), mk()];
       c.targets = [new Target(gl, [c.disp[0], c.slope[0]]), new Target(gl, [c.disp[1], c.slope[1]])];
@@ -278,28 +281,34 @@ export class Ocean {
 
   update(time, dt, foam) {
     const gl = this.gl;
-    const stages = Math.log2(N);
+    const P = this.prof;
     this.cascades.forEach((c, ci) => {
+      P && P.section('o.evolve');
       // breaking criterion: J below 1 - z * sigma_J, sigma_J ~ lambda * sqrt(mss of the band)
       const sigmaJ = this.lambda * Math.sqrt(Math.max(this.stats.bandMss[ci], 1e-8));
       const threshold = 1 - foam[0] * sigmaJ;
       const gain = foam[1] / Math.max(sigmaJ, 0.02);
-      fullscreen(gl, this.progEvolve, { uH0: c.h0, uL: c.L, uTime: time }, this.tgtA);
-      let src = this.fftA, dst = this.tgtB, dstT = this.fftB;
+      const F = this.fft[c.N];
+      const stages = Math.log2(c.N);
+      fullscreen(gl, this.progEvolve, { uH0: c.h0, uL: c.L, uTime: time }, F.tA);
+      P && P.section('o.fft');
+      let src = F.A, dst = F.tB, dstT = F.B;
       for (let dir = 0; dir < 2; dir++) {
         for (let s = 0; s < stages; s++) {
           fullscreen(gl, this.progFFT, { uIn0: src[0], uIn1: src[1], uStage: s, uDir: dir }, dst);
           const t = src; src = dstT; dstT = t;
-          dst = dst === this.tgtB ? this.tgtA : this.tgtB;
+          dst = dst === F.tB ? F.tA : F.tB;
         }
       }
       // src now holds the spatial-domain result
+      P && P.section('o.assemble');
       const next = 1 - c.cur;
       fullscreen(gl, this.progAssemble, {
         uF0: src[0], uF1: src[1], uPrev: c.disp[c.cur],
         uLambda: this.lambda, uDt: dt, uFoam: [threshold, gain, foam[2]],
       }, c.targets[next]);
       c.cur = next;
+      P && P.section('o.mips');
       c.disp[c.cur].genMips();
       c.slope[c.cur].genMips();
     });
@@ -310,6 +319,7 @@ export class Ocean {
       disp: this.cascades.map((c) => c.disp[c.cur]),
       slope: this.cascades.map((c) => c.slope[c.cur]),
       sizes: this.cascades.map((c) => c.L),
+      texels: this.cascades.map((c) => c.texel),
     };
   }
 }
@@ -343,7 +353,8 @@ function swellCPU(w, Hs, Tp) {
 function computeStats(p, cascades) {
   const U = Math.max(p.wind, 0.3);
   const kminAll = cascades[0].kmin;
-  const kmaxAll = (Math.PI * N) / cascades[cascades.length - 1].L;
+  const last = cascades[cascades.length - 1];
+  const kmaxAll = (Math.PI * last.N) / last.L;
   let m0 = 0, mss = 0;
   const band = cascades.map(() => 0);
   const steps = 4000;

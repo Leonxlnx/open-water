@@ -1,5 +1,5 @@
 import { createGL, Texture, Target, MSTarget, bindEmpty } from './gl.js';
-import { perspective, viewFromBasis, mul, invert, v3, clamp } from './math.js';
+import { perspective, viewFromBasis, mul, invert, v3, clamp, smoothstep } from './math.js';
 import { Ocean } from './ocean/ocean.js';
 import { Water } from './ocean/water.js';
 import { FoamTexture } from './ocean/foam.js';
@@ -8,11 +8,22 @@ import { Atmosphere } from './sky/atmosphere.js';
 import { Sky } from './sky/sky.js';
 import { Clouds } from './sky/clouds.js';
 import { Post } from './fx/post.js';
+import { Rain } from './fx/rain.js';
+import { Lightning } from './fx/lightning.js';
 import { Weather } from './weather.js';
 import { Profiler } from './profiler.js';
+import { UI, UI_CSS } from './ui.js';
+import { AudioEngine, renderSoundtrack, encodeWav } from './audio/audio.js';
+import { film } from './film.js';
 
 const params = new URLSearchParams(location.search);
+const mixv = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
 const RENDER_MODE = params.has('render');
+// quality tiers: 'rt' keeps the live app interactive on integrated GPUs, 'high' is for the film
+const QUALITY = {
+  rt: { cloudDiv: 3, steps: 44, lightSteps: 4, lightDetail: 1, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], aniso: 8, angular: 400 },
+  high: { cloudDiv: 2, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.3, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], aniso: 16, angular: 640 },
+}[params.get('q') || (RENDER_MODE ? 'high' : 'rt')];
 
 export class App {
   constructor(canvas) {
@@ -24,16 +35,19 @@ export class App {
     for (const k of Object.keys(this.weather.target)) if (params.has(k)) this.weather.set(k, Number(params.get(k)));
     this.weather.snap();
 
-    this.ocean = new Ocean(gl);
-    this.water = new Water(gl);
+    this.ocean = new Ocean(gl, QUALITY.fft);
+    this.water = new Water(gl, { angular: QUALITY.angular });
     this.foam = new FoamTexture(gl);
     this.probe = new OceanProbe(gl);
+    this.rain = new Rain(gl);
+    this.lightning = new Lightning(gl);
     this.atmo = new Atmosphere(gl);
     this.sky = new Sky(gl);
     this.clouds = new Clouds(gl);
     this.windOffset = [Number(params.get('cx') || 0), 0, Number(params.get('cz') || 0)];
     this.post = new Post(gl);
     this.prof = new Profiler(gl, params.has('profile'));
+    if (params.has('profile2')) this.ocean.prof = this.prof;
 
     // placeholders until the cloud system provides real data
     this.white = new Texture(gl, { w: 1, h: 1, format: 'rgba8', data: new Uint8Array([255, 255, 255, 255]) });
@@ -51,7 +65,7 @@ export class App {
     };
     this.time = Number(params.get('t') || 0);
     this.scale = Number(params.get('scale') || Math.min(window.devicePixelRatio || 1, 1.5));
-    this.msaa = Number(params.get('msaa') || 4);
+    this.msaa = Number(params.get('msaa') || QUALITY.msaa);
     this.resize();
     window.addEventListener('resize', () => this.resize());
     this.bindInput();
@@ -64,11 +78,11 @@ export class App {
     if (w === this.w && h === this.h) return;
     this.w = w; this.h = h;
     this.canvas.width = w; this.canvas.height = h;
-    this.ms = new MSTarget(gl, w, h, this.msaa);
+    this.ms = new MSTarget(gl, w, h, this.msaa, QUALITY.hdr);
     this.hdr = new Texture(gl, { w, h, format: 'rgba16f' });
     this.hdrTarget = new Target(gl, [this.hdr]);
     this.post.resize(w, h);
-    this.clouds.resize(w, h);
+    this.clouds.resize(w, h, QUALITY.cloudDiv);
   }
 
   bindInput() {
@@ -141,14 +155,44 @@ export class App {
     this.atmo.update(sun, camH, S.haze);
 
     const M = this.cameraMatrices();
+    // squall front: world-space line ahead of the camera; weather blends across it
+    const fOn = S.front > 0.5;
+    const faz = (S.frontAz * Math.PI) / 180;
+    const fn = [Math.cos(faz), Math.sin(faz)];
+    const fz = this.cam.pos[0] * fn[0] + this.cam.pos[2] * fn[1] + S.frontDist;
+    const mCam = fOn ? smoothstep(-S.frontWidth, S.frontWidth, -S.frontDist) : 0;
+    const L = {
+      rain: S.rain + (S.sRain - S.rain) * mCam,
+      clouds: S.clouds + (S.sClouds - S.clouds) * mCam,
+      dark: S.cloudDark + (S.sDark - S.cloudDark) * mCam,
+      mist: S.mist + (S.sMist - S.mist) * mCam,
+    };
+    this.local = L;
     const skyU = {
       uSkyView: this.atmo.skyView, uAerialL: this.atmo.aerialL, uAerialT: this.atmo.aerialT,
       uTransmittance: this.atmo.transmittance, uSunDir: sun, uAerialMax: this.atmo.maxDist,
       uIrradiance: this.sky.irradiance, uCamHkm: camH / 1000,
-      uHazeSun: 1 - 0.88 * Math.min(Math.max((S.clouds - 0.35) / 0.6, 0), 1) ** 1.5,
+      // fraction of direct sun reaching the haze/rain below the clouds (a thick deck blocks it all)
+      uHazeSun: (1 - smoothstep(0.3, 0.9, L.clouds)) * (1 - 0.85 * L.dark) * 0.97 + 0.03 * (1 - L.dark),
     };
-    const fogDensity = S.mist * 1.2e-3 + S.rain * 0.6e-3;
-    const fogU = { uFogDensity: fogDensity, uFogTop: S.cloudBase };
+    // lightning: flash intensity drives cloud emission, sky/sea illumination and thunder
+    if (params.has('strikeAt') && t >= Number(params.get('strikeAt')) && !this.forcedStrike) {
+      this.forcedStrike = true;
+      this.lightning.trigger(this.cam, { dist: Number(params.get('sdist') || 3500), az: this.cam.yaw + Number(params.get('saz') || 0.15), ground: true, base: S.cloudBase });
+    }
+    const flash = this.lightning.update(dt, S.lightning, this.cam, S.cloudBase);
+    const lp = this.lightning.pos;
+    const ldist = Math.hypot(lp[0] - this.cam.pos[0], lp[2] - this.cam.pos[2]);
+    const flashE = flash * 0.012 / (1 + (ldist / 2500) ** 2);
+    const flashRGB = [0.8 * flashE, 0.85 * flashE, 1.0 * flashE];
+    // rain extinction: visibility ~ 3.9/beta drops from >20 km to ~1.5 km in a downpour
+    const fogDensity = S.mist * 1.2e-3 + S.rain * 1.6e-3;
+    const stormFog = S.sMist * 1.2e-3 + S.sRain * 1.6e-3;
+    const fogU = {
+      uFogDensity: fogDensity, uFogTop: fOn ? Math.min(S.cloudBase, S.sBase) : S.cloudBase,
+      uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0], uFogStorm: [stormFog, 0.55],
+      uFogCam: [this.cam.pos[0], this.cam.pos[2]],
+    };
 
     // clouds advect with the wind aloft (~1.6x surface wind), detail evolves slowly
     const wd0 = (S.windDir * Math.PI) / 180;
@@ -158,8 +202,11 @@ export class App {
     this.windOffset[1] += dt * (3 + S.wind * 0.6);
     const cloudU = {
       windOffset: this.windOffset, coverage: S.clouds, base: S.cloudBase,
-      top: S.cloudBase + 1800 + S.cloudDark * 5200, density: 0.11 + S.cloudDark * 0.08, dark: S.cloudDark,
-      flash: [0, 0, 0, 0], flashColor: [0.75, 0.8, 1.0], blend: 0.25, steps: 64,
+      top: S.cloudBase + 1800 + S.cloudDark * 5200, density: 0.11 - S.cloudDark * 0.05, dark: S.cloudDark,
+      front: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0],
+      stormA: [S.sClouds, S.sDark, 0.11 - S.sDark * 0.05, S.sBase], stormTop: S.sBase + 1800 + S.sDark * 5200,
+      flash: [lp[0], lp[1], lp[2], flash * 0.6], flashColor: [0.75, 0.8, 1.0], blend: flash > 0.02 ? 0.85 : QUALITY.blend, steps: QUALITY.steps,
+      lightSteps: QUALITY.lightSteps, lightDetail: QUALITY.lightDetail, check: QUALITY.check,
     };
     P.section('clouds');
     this.clouds.render(skyU, cloudU, { pos: this.cam.pos, inv: M.inv, vp: M.vp });
@@ -182,24 +229,80 @@ export class App {
     this.waterUniforms = {
       ...skyU, ...fogU,
       uViewProj: M.vp, uCamPos: this.cam.pos,
-      uDisp: ot.disp.slice(0, 3), uSlope: ot.slope, uSize: ot.sizes, uDispScale: 1,
+      uDisp: ot.disp.slice(0, 3), uSlope: ot.slope, uSize: ot.sizes, uTexel: ot.texels, uDispScale: 1,
       uEnv: this.sky.env, uCloudShadow: this.clouds.shadow, uShadowRect: this.clouds.shadowRect,
       uUnresolved: stats.unresolved, uHs: stats.hs,
-      uRrs: [0.00022, 0.0019, 0.0088], uSSS: [0.004, 0.05, 0.042],
-      uFoamAmount: 1, uTime: t, uRain: S.rain, uFlash: [0, 0, 0],
+      uRrs: mixv([0.00022, 0.0019, 0.0088], [0.0011, 0.0032, 0.0046], smoothstep(9, 24, S.wind)), uSSS: [0.004, 0.05, 0.042],
+      uFoamAmount: 1, uTime: t, uRain: L.rain, uFlash: flashRGB,
       uFoamTex: this.foam.tex, uWindDir: [Math.cos(wd), Math.sin(wd)], uFoamStretch: Math.min(Math.max((S.wind - 11) / 10, 0), 1), uDebug: 0,
     };
     this.water.draw(this.waterUniforms);
+
+    P.section('rain');
+    const pixelAngle = this.cam.fov / this.h;
+    const fxU = { viewProj: M.vp, camPos: this.cam.pos, pixelAngle };
+    this.lightning.draw({ ...fxU, fogDensity });
+    this.rain.draw({
+      ...fxU, skyU, rain: L.rain, time: t, exposure: 1 / 60,
+      wind: [Math.cos(wd) * S.wind * 0.8, Math.sin(wd) * S.wind * 0.8],
+      viewport: [this.w, this.h], env: this.sky.env, flash: flashRGB,
+      disp: ot.disp.slice(0, 3), sizes: ot.sizes,
+    });
     gl.disable(gl.DEPTH_TEST);
     this.ms.resolve(this.hdrTarget);
 
     P.section('post');
     this.post.run(this.hdr, dt, {
       time: t, bloom: 0.05, exposureBias: Number(params.get('ev') || 0),
-      skyU, cloudShadow: this.clouds.shadow, incident: 0.75,
+      skyU, cloudShadow: this.clouds.shadow, incident: 0.75, fade: this.fade ?? 1,
     });
     P.end();
     this.stats = stats;
+    this.flash = flash;
+    this.thunderEvents = this.lightning.events.splice(0);
+  }
+
+  // Film: drive weather + camera from the timeline at time t (seconds), deterministic.
+  filmFrame(t, dt) {
+    const act = film.actAt(Math.max(t, 0));
+    if (this.filmAct !== undefined && act !== this.filmAct) {
+      // new shot: settle foam, clouds and camera filters off-screen (during the dip to black)
+      this.filmAct = act;
+      const t0 = film.acts[act].start;
+      for (let w = t0 - 3; w < t0 - dt / 2; w += dt) this.filmFrame(w < t0 ? t0 : w, dt);
+    }
+    this.filmAct = act;
+    this.fade = film.fadeAt(t);
+    const W = this.weather;
+    const w = film.weatherAt(Math.max(t, 0));
+    for (const k in w) {
+      if (k in W.time) { W.time[k] = w[k]; W.timeTarget[k] = w[k]; }
+      else { W.state[k] = w[k]; W.target[k] = w[k]; }
+    }
+    W.transition = 1e-6;
+    const c = film.cameraAt(Math.max(t, 0));
+    this.cam.yaw = (c.yaw * Math.PI) / 180;
+    this.cam.pitch = (c.pitch * Math.PI) / 180;
+    this.cam.eye = c.eye;
+    this.cam.fov = (c.fov * Math.PI) / 180;
+    for (const s of film.strikes) {
+      if (s.t > t - dt && s.t <= t) this.lightning.trigger(this.cam, { dist: s.dist, az: this.cam.yaw + s.rel, ground: s.ground, base: W.state.cloudBase });
+    }
+    this.time = t - dt;
+    this.frame(dt);
+  }
+
+  // Film soundtrack (OfflineAudioContext), returned as a WAV ArrayBuffer.
+  async filmAudio() {
+    const paramsAt = (t) => {
+      const w = film.weatherAt(t);
+      const hs = 0.21 * w.wind * w.wind / 9.81 + w.swellHs * 0.5;
+      const mc = w.front > 0.5 ? smoothstep(-w.frontWidth, w.frontWidth, -w.frontDist) : 0;
+      return { wind: w.wind, rain: w.rain + ((w.sRain ?? 0) - w.rain) * mc, hs, tp: (2 * Math.PI * Math.max(w.wind, 1)) / (0.855 * 9.81), foam: Math.min(2 * 3.84e-6 * Math.pow(w.wind, 3.41), 0.4) };
+    };
+    const strikes = film.strikes.map((s) => ({ t: s.t, dist: s.dist, power: s.power }));
+    const buf = await renderSoundtrack(film.duration, paramsAt, strikes);
+    return encodeWav(buf);
   }
 
   // Debug: fraction of the sea surface covered by foam, measured from a top-down render.
@@ -231,12 +334,43 @@ try {
   throw e;
 }
 
+// Live audio: created on the first user gesture (browsers block autoplay).
+const audio = {
+  engine: new AudioEngine(),
+  ctx: null,
+  async enable(on) {
+    if (on && !this.ctx) {
+      this.ctx = new AudioContext({ latencyHint: 'playback' });
+      await this.engine.init(this.ctx);
+    }
+    if (!this.ctx) return;
+    if (on) await this.ctx.resume(); else await this.ctx.suspend();
+  },
+  update(app) {
+    const e = this.engine;
+    if (!this.ctx) return;
+    const S = app.weather.state;
+    e.set({
+      wind: S.wind, rain: S.rain, hs: app.stats ? app.stats.hs : 2,
+      tp: (2 * Math.PI * Math.max(S.wind, 1)) / (0.855 * 9.81),
+      foam: Math.min(2 * 3.84e-6 * Math.pow(S.wind, 3.41), 0.4),
+    });
+    e.tick();
+    for (const ev of app.thunderEvents || []) e.thunder(this.ctx.currentTime, ev.dist, ev.power);
+  },
+};
+
 if (!RENDER_MODE) {
+  const style = document.createElement('style');
+  style.textContent = UI_CSS;
+  document.head.appendChild(style);
+  app.ui = new UI(app, audio);
   let last = performance.now();
   const loop = (now) => {
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
     app.frame(dt);
+    audio.update(app);
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);

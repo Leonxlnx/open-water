@@ -64,6 +64,7 @@ uniform sampler2D uLum;
 uniform sampler2D uCloudShadow;
 uniform float uIncident;
 uniform float uLightning;
+uniform float uWhiteBalance;
 uniform sampler2D uPrev;
 uniform float uDt;
 uniform float uSpeed;
@@ -76,10 +77,16 @@ void main() {
   vec3 E = sunIlluminance() * vis * max(uSunDir.y, 0.0) + skyIrradiance();
   float grey = 0.18 * dot(E, vec3(0.2126, 0.7152, 0.0722)) / 3.14159;
   float target = exp(mix(scene, log(max(grey, 1e-6)), uIncident));
-  float prev = texelFetch(uPrev, ivec2(0), 0).r;
-  if (prev <= 0.0 || isnan(prev)) prev = target;
+  // white balance (von Kries, partial): neutralise part of the illuminant's colour cast
+  float Ey = max(dot(E, vec3(0.2126, 0.7152, 0.0722)), 1e-6);
+  vec3 wb = clamp(pow(Ey / max(E, vec3(1e-6)), vec3(uWhiteBalance)), vec3(0.6), vec3(1.7));
+  wb /= dot(wb, vec3(0.2126, 0.7152, 0.0722));
+  vec4 prevT = texelFetch(uPrev, ivec2(0), 0);
+  float prev = prevT.r;
+  vec3 prevWb = prevT.gba;
+  if (prev <= 0.0 || isnan(prev)) { prev = target; prevWb = wb; }
   float a = 1.0 - exp(-uDt * uSpeed);
-  o = vec4(exp(mix(log(prev), log(target), a)), 0.0, 0.0, 1.0);
+  o = vec4(exp(mix(log(prev), log(target), a)), mix(prevWb, wb, a));
 }`;
 
 const COMPOSITE_FS = `
@@ -97,6 +104,7 @@ uniform float uGrain;
 uniform float uVignette;
 uniform float uFlashExposure;
 uniform float uManualExposure;
+uniform float uFade;
 
 vec3 agxContrast(vec3 x) {
   vec3 x2 = x * x, x4 = x2 * x2;
@@ -121,7 +129,7 @@ vec3 agxEotf(vec3 v) {
 vec3 agxLook(vec3 v) {
   float luma = dot(v, vec3(0.2126, 0.7152, 0.0722));
   v = pow(max(v, vec3(0.0)), vec3(1.12));
-  return luma + 1.12 * (v - luma);
+  return luma + 1.04 * (v - luma);
 }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
@@ -129,11 +137,12 @@ void main() {
   vec3 hdr = texture(uHdr, vUv).rgb;
   vec3 bloom = texture(uBloom, vUv).rgb;
   vec3 c = mix(hdr, bloom, uBloomStrength);
-  float avg = texelFetch(uAdapt, ivec2(0), 0).r;
-  avg = clamp(avg, uMinLum, uMaxLum);
+  vec4 adapt = texelFetch(uAdapt, ivec2(0), 0);
+  float avg = clamp(adapt.r, uMinLum, uMaxLum);
+  c *= adapt.gba;
   float exposure = uManualExposure > 0.0 ? uManualExposure : 0.18 / avg;
   exposure *= exp2(uExposureBias) / (1.0 + uFlashExposure);
-  c *= exposure;
+  c *= exposure * uFade;
   vec2 d = vUv - 0.5;
   c *= 1.0 - uVignette * dot(d, d) * 1.6;
   c = agxEotf(agxLook(agx(c)));
@@ -156,7 +165,7 @@ export class Post {
     this.pComp = new Program(gl, FULLSCREEN_VS, COMPOSITE_FS, { label: 'composite' });
     this.lum = new Texture(gl, { w: 256, h: 256, format: 'rg16f', mips: true });
     this.lumTarget = new Target(gl, [this.lum]);
-    this.adapt = [0, 1].map(() => new Texture(gl, { w: 1, h: 1, format: 'r32f', filter: 'nearest' }));
+    this.adapt = [0, 1].map(() => new Texture(gl, { w: 1, h: 1, format: 'rgba32f', filter: 'nearest' }));
     this.adaptTargets = this.adapt.map((t) => new Target(gl, [t]));
     for (const t of this.adaptTargets) { t.bind(); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
     this.adaptCur = 0;
@@ -195,7 +204,7 @@ export class Post {
     this.lum.genMips();
     const next = 1 - this.adaptCur;
     fullscreen(gl, this.pAdapt, {
-      ...opts.skyU, uCloudShadow: opts.cloudShadow, uIncident: opts.incident ?? 0.75,
+      ...opts.skyU, uCloudShadow: opts.cloudShadow, uIncident: opts.incident ?? 0.75, uWhiteBalance: opts.whiteBalance ?? 0.55,
       uLum: this.lum, uPrev: this.adapt[this.adaptCur], uDt: dt, uSpeed: opts.adaptSpeed ?? 1.5, uLevel: 8,
     }, this.adaptTargets[next]);
     this.adaptCur = next;
@@ -206,13 +215,14 @@ export class Post {
       uAdapt: this.adapt[this.adaptCur],
       uBloomStrength: (opts.bloom ?? 0.04) / this.levels.length,
       uExposureBias: opts.exposureBias ?? 0,
-      uMinLum: opts.minLum ?? 0.002,
+      uMinLum: opts.minLum ?? 0.0003,
       uMaxLum: opts.maxLum ?? 10,
       uTime: opts.time,
       uGrain: opts.grain ?? 0.012,
       uVignette: opts.vignette ?? 0.18,
       uFlashExposure: opts.flashExposure ?? 0,
       uManualExposure: opts.manualExposure ?? 0,
+      uFade: opts.fade ?? 1,
     }, null);
   }
 }

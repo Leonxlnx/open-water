@@ -19,6 +19,7 @@ export class Profiler {
     this.current = null;
   }
   section(name) { this.end(); this.begin(name); }
+  // sections with the same name in one frame are summed (frame boundary = 'ocean')
   poll() {
     if (!this.ext) return;
     const gl = this.gl;
@@ -27,9 +28,10 @@ export class Profiler {
       if (!gl.getQueryParameter(q, gl.QUERY_RESULT_AVAILABLE)) return true;
       if (!disjoint) {
         const ms = gl.getQueryParameter(q, gl.QUERY_RESULT) / 1e6;
-        const s = (this.stats[name] ||= { avg: ms, n: 0 });
-        s.avg = s.avg * 0.9 + ms * 0.1;
+        const s = (this.stats[name] ||= { avg: 0, n: 0, sum: 0 });
+        s.sum += ms;
         s.n++;
+        s.avg = s.sum / s.n;
       }
       gl.deleteQuery(q);
       return false;

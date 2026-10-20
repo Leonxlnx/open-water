@@ -12,6 +12,7 @@ uniform mat4 uViewProj;
 uniform vec3 uCamPos;
 uniform sampler2D uDisp[3];
 uniform float uSize[4];
+uniform float uTexel[4];
 uniform float uAngStep;
 uniform float uDispScale;
 out vec3 vWorld;
@@ -23,10 +24,10 @@ void main() {
   // vertex spacing at this ring -> mip level per cascade (filters waves the mesh cannot carry)
   float spacing = max(r * uAngStep, 0.02);
   vec3 D = vec3(0.0);
-  float lsp = log2(spacing * 1.5 * 256.0);
-  D += textureLod(uDisp[0], xz / uSize[0], max(lsp - log2(uSize[0]), 0.0)).xyz;
-  D += textureLod(uDisp[1], xz / uSize[1], max(lsp - log2(uSize[1]), 0.0)).xyz;
-  D += textureLod(uDisp[2], xz / uSize[2], max(lsp - log2(uSize[2]), 0.0)).xyz;
+  float lsp = log2(spacing * 1.5);
+  D += textureLod(uDisp[0], xz / uSize[0], max(lsp - log2(uTexel[0]), 0.0)).xyz;
+  D += textureLod(uDisp[1], xz / uSize[1], max(lsp - log2(uTexel[1]), 0.0)).xyz;
+  D += textureLod(uDisp[2], xz / uSize[2], max(lsp - log2(uTexel[2]), 0.0)).xyz;
   D *= uDispScale;
   // fade displacement where the mesh is extremely coarse (far field)
   vec3 P = vec3(xz.x + D.x, D.y, xz.y + D.z);

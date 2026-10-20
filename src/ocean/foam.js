@@ -84,17 +84,19 @@ vec2 foamCoverage(vec2 xz, float f, float t, float dist) {
   vec4 a = texture(uFoamTex, p / 5.5);
   vec4 b = texture(uFoamTex, p / 1.9 + vec2(0.37, 0.71));
   vec4 s = texture(uFoamTex, vec2(p.x / 45.0, p.y / 15.0) + vec2(0.13, 0.5));
-  float T = a.r * 0.6 + b.r * 0.4;
-  T = mix(T, mix(T, s.b, 0.7), uFoamStretch);
-  float F = 1.0 - exp(-f * 1.5);
+  vec4 big = texture(uFoamTex, p / 37.0 + vec2(0.61, 0.27));
+  // multi-scale threshold: the large component makes patch outlines ragged at metre scale
+  float T = big.r * 0.4 + a.r * 0.38 + b.r * 0.22;
+  T = mix(T, mix(T, s.b * 0.8 + big.g * 0.25, 0.6), uFoamStretch);
+  float F = (1.0 - exp(-f * 1.5)) * 0.92;
   // fresh foam is a solid sheet; decaying foam opens up along the threshold field
   float edge = 0.07 + fwidth(T) * 0.7;
-  float cov = clamp((F * 1.2 - T * 0.9) / edge + 0.15, 0.0, 1.0);
+  float cov = clamp((F * 1.15 - T) / edge + 0.1, 0.0, 1.0);
   // far away: sub-pixel structure averages out to the expected (energy-conserving) coverage
   vec2 g = max(abs(dFdx(p)), abs(dFdy(p))) / 5.5 * 1024.0;
   float far = smoothstep(2.5, 6.5, log2(max(max(g.x, g.y), 1e-3)));
   cov = mix(cov, clamp(F * 1.25, 0.0, 1.0), far);
-  float bub = mix(a.g * 0.5 + b.g * 0.5, 0.8, far);
+  float bub = mix(a.g * 0.45 + b.g * 0.35 + big.r * 0.2, 0.8, far);
   float thick = clamp(F * 1.4, 0.0, 1.0) * bub;
   return vec2(cov, thick);
 }

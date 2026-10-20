@@ -92,21 +92,39 @@ uniform sampler3D uShape;
 uniform sampler3D uDetail;
 uniform sampler2D uWeather;
 uniform vec3 uWindOffset;     // metres of advection (xz) and detail evolution (y)
-uniform float uCoverage;
+uniform float uCoverage;      // fair-weather side of the front
 uniform float uBase;          // m
 uniform float uTop;           // m
 uniform float uDensity;       // extinction scale (1/m)
 uniform float uDark;          // storm darkness 0..1
+uniform vec4 uFront;          // squall front: xy unit normal (towards the storm), z offset (m), w width (0 = off)
+uniform vec4 uStormA;         // storm side: coverage, darkness, density, base
+uniform float uStormTop;      // storm side: top (m)
 uniform vec4 uFlash;          // lightning position xyz (m), intensity
 uniform vec3 uFlashColor;
 const float RG_M = 6360000.0;
 
 float remapc(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
+float frontMask(vec2 xz) { return uFront.w > 0.0 ? smoothstep(-uFront.w, uFront.w, dot(xz, uFront.xy) - uFront.z) : 0.0; }
+float shellBase() { return uFront.w > 0.0 ? min(uBase, uStormA.w) : uBase; }
+float shellTop() { return uFront.w > 0.0 ? max(uTop, uStormTop) : uTop; }
+float maxCoverage() { return uFront.w > 0.0 ? max(uCoverage, uStormA.x) : uCoverage; }
 
-float cloudDensity(vec3 p, float hf, bool detail) {
+// local cloud regime at a point: x coverage, y darkness, z density, w front mask; base/top out
+vec4 regime(vec2 xz, out float base, out float top) {
+  float m = frontMask(xz);
+  base = mix(uBase, uStormA.w, m);
+  top = mix(uTop, uStormTop, m);
+  return vec4(mix(uCoverage, uStormA.x, m), mix(uDark, uStormA.y, m), mix(uDensity, uStormA.z, m), m);
+}
+
+float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top) {
+  if (h < base || h > top) return 0.0;
+  float hf = (h - base) / (top - base);
+  float cov = R.x, dark = R.y;
   vec2 wuv = (p.xz + uWindOffset.xz) / 30000.0;
   vec4 wm = texture(uWeather, wuv);
-  float c = smoothstep(1.0 - uCoverage - 0.18, 1.0 - uCoverage + 0.2, wm.r * 0.85 + wm.b * 0.25 * uCoverage);
+  float c = smoothstep(1.0 - cov - 0.18, 1.0 - cov + 0.2, wm.r * 0.85 + wm.b * 0.25 * cov);
   if (c <= 0.001) return 0.0;
   vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / 3000.0;
   vec4 n = texture(uShape, sp);
@@ -114,13 +132,13 @@ float cloudDensity(vec3 p, float hf, bool detail) {
   // vertical profile. Fair weather: cumulus towers with type-dependent tops.
   // Storm: a layer deck whose base undulates (rolls, scud) and whose thickness varies 2-3x,
   // which is what gives an overcast its mottled light and dark patches.
-  float baseFrac = mix(0.0, (wf - 0.45) * 0.14 + 0.03, uDark);
+  float baseFrac = mix(0.0, (wf - 0.45) * 0.14 + 0.03, dark);
   float topCu = mix(0.45, 1.0, wm.g);
   float topSt = mix(0.3, 1.0, clamp(wm.b * 0.8 + n.r * 0.5 - 0.15, 0.0, 1.0));
-  float top = mix(topCu, topSt, uDark);
-  float hg = smoothstep(baseFrac, baseFrac + mix(0.07, 0.05, uDark), hf) * (1.0 - smoothstep(top * 0.55, top, hf));
-  float base = remapc(n.r, wf - 1.0, 1.0, 0.0, 1.0);
-  float d = base * hg;
+  float tf = mix(topCu, topSt, dark);
+  float hg = smoothstep(baseFrac, baseFrac + mix(0.07, 0.05, dark), hf) * (1.0 - smoothstep(tf * 0.55, tf, hf));
+  float shape = remapc(n.r, wf - 1.0, 1.0, 0.0, 1.0);
+  float d = shape * hg;
   d = remapc(d, 1.0 - c, 1.0, 0.0, 1.0) * c;
   if (d <= 0.0) return 0.0;
   if (detail) {
@@ -131,7 +149,12 @@ float cloudDensity(vec3 p, float hf, bool detail) {
     float dm = mix(df, 1.0 - df, clamp(hf * 5.0, 0.0, 1.0));
     d = remapc(d, dm * 0.45, 1.0, 0.0, 1.0);
   }
-  return max(d, 0.0) * uDensity;
+  return max(d, 0.0) * R.z;
+}
+float cloudDensity(vec3 p, float h, bool detail) {
+  float base, top;
+  vec4 R = regime(p.xz, base, top);
+  return cloudDensityR(p, h, detail, R, base, top);
 }
 
 float hg(float c, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
@@ -148,17 +171,18 @@ vec2 shellHits(vec3 ro, vec3 rd, float R) {
 float heightOf(vec3 p) { return length(p + vec3(0.0, RG_M, 0.0)) - RG_M; }
 
 // returns rgb in-scattered radiance (sun illuminance = 1 units), a = transmittance; also mean distance
-vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, float jitter, vec3 sunE, vec3 ambTop, vec3 ambBot, out float meanDist) {
+vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, float jitter, vec3 sunE, vec3 ambTop, vec3 ambBot, out float meanDist) {
   meanDist = 0.0;
-  if (uCoverage < 0.01) return vec4(0.0, 0.0, 0.0, 1.0);
-  vec2 hb = shellHits(ro, rd, RG_M + uBase);
-  vec2 ht = shellHits(ro, rd, RG_M + uTop);
+  if (maxCoverage() < 0.01) return vec4(0.0, 0.0, 0.0, 1.0);
+  float sB = shellBase(), sT = shellTop();
+  vec2 hb = shellHits(ro, rd, RG_M + sB);
+  vec2 ht = shellHits(ro, rd, RG_M + sT);
   float t0, t1;
   float h0 = heightOf(ro);
-  if (h0 < uBase) {
+  if (h0 < sB) {
     if (rd.y < -0.02) return vec4(0.0, 0.0, 0.0, 1.0);
     t0 = hb.y; t1 = ht.y;
-  } else if (h0 < uTop) {
+  } else if (h0 < sT) {
     t0 = 0.0; t1 = rd.y > 0.0 ? ht.y : (hb.x > 0.0 ? hb.x : ht.y);
   } else {
     if (ht.x < 0.0) return vec4(0.0, 0.0, 0.0, 1.0);
@@ -168,7 +192,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, float jitter, vec3
   if (t1 <= t0) return vec4(0.0, 0.0, 0.0, 1.0);
   // adaptive stepping: coarse probes in empty space, fine steps inside clouds.
   // Fine step grows with distance (pixel footprint) to bound the cost near the horizon.
-  float fine = clamp(t0 * 0.006, 28.0, 450.0) * (64.0 / float(steps));
+  float fine = clamp(t0 * 0.008, 30.0, 700.0) * (64.0 / float(steps));
   float coarse = fine * 3.0;
   float t = t0 + coarse * jitter;
   vec3 L = vec3(0.0);
@@ -179,35 +203,38 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, float jitter, vec3
   float ph0 = mix(hg(cosT, 0.82), hg(cosT, -0.3), 0.25);
   float ph1 = mix(hg(cosT, 0.41), hg(cosT, -0.15), 0.25);
   float ph2 = mix(hg(cosT, 0.2), hg(cosT, -0.07), 0.25);
-  float thick = uTop - uBase;
   bool inside = false;
   bool allowBack = true;
   int miss = 0;
   for (int i = 0; i < 220; i++) {
-    if (i >= steps * 3 || T < 0.008 || t > t1) break;
+    if (i >= steps * 2 || T < 0.02 || t > t1) break;
     vec3 p = ro + rd * t;
     float h = heightOf(p);
-    float hf = clamp((h - uBase) / thick, 0.0, 1.0);
+    float base, top;
+    vec4 R = regime(p.xz, base, top);
     if (!inside) {
-      if (cloudDensity(p, hf, false) > 0.0) {
+      if (cloudDensityR(p, h, false, R, base, top) > 0.0) {
         inside = true; miss = 0;
         if (allowBack) { t = max(t - coarse, t0); allowBack = false; continue; }
       } else { t += coarse; continue; }
     }
-    float sigma = cloudDensity(p, hf, true);
-    float stepLen = fine * (1.0 + t * 0.00002);
+    // distance LOD: erosion detail and long light paths are sub-pixel far away
+    bool nearField = t < 14000.0;
+    float sigma = cloudDensityR(p, h, nearField, R, base, top);
+    float stepLen = fine * (1.0 + t * 0.00004);
     if (sigma > 0.0) {
       miss = 0;
+      float hf = clamp((h - base) / (top - base), 0.0, 1.0);
       // light march towards the sun (geometric step growth)
       float tau = 0.0;
       float ls = 45.0;
       vec3 lp = p;
       for (int j = 0; j < 8; j++) {
-        if (j >= lightSteps) break;
+        if (j >= (nearField ? lightSteps : 2)) break;
         lp += uSunDir * ls;
         float lh = heightOf(lp);
-        if (lh > uTop || lh < uBase - 50.0) break;
-        tau += cloudDensity(lp, clamp((lh - uBase) / thick, 0.0, 1.0), j < 3) * ls;
+        if (lh > sT || lh < sB - 50.0) break;
+        tau += cloudDensity(lp, lh, j < lightDetail) * ls;
         ls *= 1.85;
       }
       float ms = ph0 * exp(-tau) + 0.5 * ph1 * exp(-0.5 * tau) + 0.25 * ph2 * exp(-0.25 * tau);
@@ -215,18 +242,18 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, float jitter, vec3
       float powder = 1.0 - exp(-2.0 * tau - sigma * 80.0);
       // optical depth of the column above: diffuse light filtering down through the deck
       float tauUp = 0.0;
-      if (uCoverage > 0.55) {
+      if (R.x > 0.55) {
         float us = 180.0;
         vec3 up = p;
         for (int j = 0; j < 4; j++) {
           up.y += us;
           float uh = heightOf(up);
-          if (uh > uTop) break;
-          tauUp += cloudDensity(up, clamp((uh - uBase) / thick, 0.0, 1.0), false) * us;
+          if (uh > top) break;
+          tauUp += cloudDensityR(up, uh, false, R, base, top) * us;
           us *= 2.4;
         }
       } else {
-        tauUp = sigma * (1.0 - hf) * thick * 0.35;
+        tauUp = sigma * (1.0 - hf) * (top - base) * 0.35;
       }
       // two-stream diffusion transmittance for thick media (asymmetry g ~ 0.85): 1/(1 + 0.75(1-g) tau)
       float diffSun = 1.0 / (1.0 + 0.11 * tau);
@@ -268,11 +295,22 @@ uniform float uBlend;
 uniform vec3 uAmbTop;
 uniform vec3 uAmbBot;
 uniform int uSteps;
+uniform int uLightSteps;
+uniform int uLightDetail;
+uniform int uCheck;   // 1: raymarch one pixel of every 2x2 block per frame, reproject the rest
 float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 void main() {
   vec4 ndc = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
   vec4 w = uInvViewProj * ndc;
   vec3 rd = normalize(w.xyz / w.w - uCamPos);
+  // clouds are effectively at infinity: reproject by direction
+  vec4 prevClip = uPrevViewProj * vec4(uCamPos + rd * 1e4, 1.0);
+  vec2 puv = prevClip.xy / prevClip.w * 0.5 + 0.5;
+  bool valid = prevClip.w > 0.0 && all(greaterThanEqual(puv, vec2(0.0))) && all(lessThanEqual(puv, vec2(1.0))) && uBlend < 1.0;
+  vec4 hist = valid ? texture(uHistory, puv) : vec4(0.0);
+  ivec2 ip = ivec2(gl_FragCoord.xy);
+  int slot = (ip.x & 1) + 2 * (ip.y & 1);
+  if (uCheck == 1 && valid && uBlend < 0.5 && slot != (int(uFrame) & 3)) { o = hist; return; }
   float j = fract(ign(gl_FragCoord.xy) + uFrame * 0.618034);
   float hKm = max(uBase, 0.0) * 0.001;
   vec3 sunE = sunTransmittanceAt(hKm + 0.5, uSunDir.y);
@@ -281,7 +319,7 @@ void main() {
   vec3 ambTop = (zen * 0.55 + hor * 0.45) * uAmbTop;
   vec3 ambBot = (sunTransmittanceAt(0.0, uSunDir.y) * max(uSunDir.y, 0.0) + zen * 3.14159) * 0.06 / 3.14159 * uAmbBot;
   float md;
-  vec4 c = marchClouds(uCamPos, rd, uSteps, 6, j, sunE, ambTop, ambBot, md);
+  vec4 c = marchClouds(uCamPos, rd, uSteps, uLightSteps, uLightDetail, j, sunE, ambTop, ambBot, md);
   // aerial perspective toward the cloud
   if (c.a < 0.999) {
     vec3 aL, aT;
@@ -289,13 +327,8 @@ void main() {
     vec3 sky = skyRadiance(rd);
     c.rgb = c.rgb * aT + aL * (1.0 - c.a) * 0.9;
   }
-  // temporal accumulation (clouds are effectively at infinity: reproject by direction)
-  vec4 prevClip = uPrevViewProj * vec4(uCamPos + rd * 1e4, 1.0);
-  vec2 puv = prevClip.xy / prevClip.w * 0.5 + 0.5;
-  if (prevClip.w > 0.0 && all(greaterThanEqual(puv, vec2(0.0))) && all(lessThanEqual(puv, vec2(1.0))) && uBlend < 1.0) {
-    vec4 h = texture(uHistory, puv);
-    c = mix(h, c, uBlend);
-  }
+  // temporal accumulation (a checkerboarded pixel is refreshed every 4th frame: blend harder)
+  if (valid) c = mix(hist, c, uCheck == 1 ? min(uBlend * 2.5, 1.0) : uBlend);
   o = c;
 }`;
 
@@ -321,7 +354,7 @@ void main() {
   vec3 ambTop = (zen * 0.55 + hor * 0.45) * uAmbTop;
   vec3 ambBot = (sunTransmittanceAt(0.0, uSunDir.y) * max(uSunDir.y, 0.0) + zen * 3.14159) * 0.06 / 3.14159 * uAmbBot;
   float md;
-  vec4 c = marchClouds(uCamPos, rd, 40, 4, j, sunE, ambTop, ambBot, md);
+  vec4 c = marchClouds(uCamPos, rd, 36, 3, 0, j, sunE, ambTop, ambBot, md);
   if (c.a < 0.999) {
     vec3 aL, aT;
     aerial(rd, md * 0.001, aL, aT);
@@ -338,14 +371,13 @@ uniform vec4 uRect; // origin xz, size
 void main() {
   vec3 p0 = vec3(uRect.x + vUv.x * uRect.z, 0.0, uRect.y + vUv.y * uRect.z);
   vec3 L = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.03), uSunDir.z));
-  float tb = uBase / L.y, tt = uTop / L.y;
+  float tb = shellBase() / L.y, tt = shellTop() / L.y;
   float tau = 0.0;
   const int N = 16;
   float dt = (tt - tb) / float(N);
   for (int i = 0; i < N; i++) {
     vec3 p = p0 + L * (tb + (float(i) + 0.5) * dt);
-    float hf = (p.y - uBase) / (uTop - uBase);
-    tau += cloudDensity(p, hf, false) * dt;
+    tau += cloudDensity(p, p.y, false) * dt;
   }
   o = vec4(exp(-tau * 0.85), 0.0, 0.0, 1.0);
 }`;
@@ -361,7 +393,7 @@ export class Clouds {
     this.pScreen = new Program(gl, FULLSCREEN_VS, SCREEN_FS, { label: 'clouds.screen' });
     this.pEnv = new Program(gl, FULLSCREEN_VS, ENV_FS, { label: 'clouds.env' });
     this.pShadow = new Program(gl, FULLSCREEN_VS, SHADOW_FS, { label: 'clouds.shadow' });
-    this.envTex = [0, 1].map(() => new Texture(gl, { w: 384, h: 192, format: 'rgba16f' }));
+    this.envTex = [0, 1].map(() => new Texture(gl, { w: 320, h: 160, format: 'rgba16f' }));
     this.envTargets = this.envTex.map((t) => new Target(gl, [t]));
     this.envCur = 0;
     this.shadow = new Texture(gl, { w: 256, h: 256, format: 'r16f' });
@@ -383,9 +415,9 @@ export class Clouds {
     return tex;
   }
 
-  resize(w, h) {
+  resize(w, h, div = 2) {
     const gl = this.gl;
-    this.w = Math.ceil(w / 2); this.h = Math.ceil(h / 2);
+    this.w = Math.ceil(w / div); this.h = Math.ceil(h / div);
     this.tex = [0, 1].map(() => new Texture(gl, { w: this.w, h: this.h, format: 'rgba16f' }));
     this.targets = this.tex.map((t) => new Target(gl, [t]));
     this.cur = 0;
@@ -397,6 +429,7 @@ export class Clouds {
       uShape: this.shape, uDetail: this.detail, uWeather: this.weatherMap,
       uWindOffset: u.windOffset, uCoverage: u.coverage, uBase: u.base, uTop: u.top,
       uDensity: u.density, uDark: u.dark, uFlash: u.flash, uFlashColor: u.flashColor,
+      uFront: u.front || [1, 0, 0, 0], uStormA: u.stormA || [0, 0, 0, 0], uStormTop: u.stormTop || 0,
     };
   }
 
@@ -409,20 +442,23 @@ export class Clouds {
     const ox = Math.floor((cam.pos[0] - this.shadowSize / 2) / texel) * texel;
     const oz = Math.floor((cam.pos[2] - this.shadowSize / 2) / texel) * texel;
     this.shadowRect = [ox, oz, 1 / this.shadowSize, 1 / this.shadowSize];
-    fullscreen(gl, this.pShadow, { ...cu, uSunDir: skyU.uSunDir, uRect: [ox, oz, this.shadowSize, 0] }, this.shadowTarget);
+    const full = this.reset || this.frame < 4 || u.everyFrame;
+    if (full || this.frame % 2 === 0) fullscreen(gl, this.pShadow, { ...cu, uSunDir: skyU.uSunDir, uRect: [ox, oz, this.shadowSize, 0] }, this.shadowTarget);
 
     const amb = { uAmbTop: u.ambTop || [1, 1, 1], uAmbBot: u.ambBot || [1, 1, 1] };
     // reflection probe clouds (amortised via history blend)
     const en = 1 - this.envCur;
+    if (full || this.frame % 2 === 1 || u.flash[3] > 0.01) {
     fullscreen(gl, this.pEnv, { ...skyU, ...cu, ...amb, uCamPos: cam.pos, uFrame: this.reset ? 0 : this.frame, uHistory: this.envTex[this.envCur] }, this.envTargets[en]);
     this.envCur = en;
+    }
 
     const next = 1 - this.cur;
     fullscreen(gl, this.pScreen, {
       ...skyU, ...cu, ...amb,
       uInvViewProj: cam.inv, uPrevViewProj: this.prevVP || cam.vp, uCamPos: cam.pos,
       uHistory: this.tex[this.cur], uFrame: this.frame % 64, uBlend: this.reset ? 1 : u.blend ?? 0.2,
-      uSteps: u.steps ?? 64,
+      uSteps: u.steps ?? 64, uLightSteps: u.lightSteps ?? 6, uLightDetail: u.lightDetail ?? 3, uCheck: u.check ? 1 : 0,
     }, this.targets[next]);
     this.cur = next;
     this.prevVP = cam.vp;
