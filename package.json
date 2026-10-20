@@ -1,0 +1,15 @@
+{
+  "name": "open-water",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Real-time physically based ocean with weather, rain and storms in pure WebGL2.",
+  "scripts": {
+    "dev": "node tools/serve.mjs 5173",
+    "shot": "node tools/shot.mjs",
+    "render": "node render/render.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.11.1"
+  }
+}
