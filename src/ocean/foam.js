@@ -96,7 +96,7 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   // large-scale structure stretches along the wind as it strengthens (wind rows of foam)
   vec4 big = texture(uFoamTex, vec2(p.x / (37.0 * (1.0 + 5.0 * uFoamStretch)), p.y / 37.0) + vec2(0.61, 0.27));
   // a crest breaks in segments of a few metres, not along its whole length
-  float seg = texture(uFoamTex, vec2(p.x / 3.5, p.y / 12.0) + vec2(0.43, 0.19)).r;
+  float seg = texture(uFoamTex, vec2(p.x / 6.0, p.y / 8.0) + vec2(0.43, 0.19)).r;
   // wind rows: bands ~60 m long and a few metres wide along the wind (Langmuir convergence lines)
   float wr = texture(uFoamTex, vec2(p.x / 140.0, p.y / 64.0) + vec2(0.71, 0.37)).b;
   // multi-scale threshold: the large component makes patch outlines ragged at metre scale
@@ -113,12 +113,12 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   if (f < 0.003 && lace < 0.003 && act < 0.003) return vec2(0.0);
   // densities in [0, 1): residual (stage B, seconds to tens of seconds) and active breaking (stage A)
   float F = 1.0 - exp(-f * 1.3);
-  float A = min((1.0 - exp(-act * 0.8)) * smoothstep(0.3, 0.62, seg) * 1.6, 1.0);
+  float A = min((1.0 - exp(-act * 0.8)) * smoothstep(0.3, 0.62, seg) * 1.3, 1.0);
   // coverage = P(pattern < density): foam fills the low values of a pattern field first.
   //  Pa, active froth: metre-scale churn plus the raft network, so the rim of a breaking crest
   //      frays into filaments and specks, and only the core is solid (with holes)
   //  Pr, residual foam: the raft network dominates, so decaying foam opens up into lace and marbling
-  float Pa = clamp(T * 0.8 + vein * 0.35 - 0.12, 0.0, 1.0);
+  float Pa = clamp(T * 0.8 + vein * 0.35 - 0.12 + (b.r - 0.5) * 0.25, 0.0, 1.0);
   float Pr = clamp(vein * 0.85 + T * 0.3 - 0.1, 0.0, 1.0);
   // footprint of a pixel in metres (geometric mean of the axes: what anisotropic filtering resolves)
   float fpm = sqrt(length(dpx) * length(dpy));

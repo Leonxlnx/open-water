@@ -123,6 +123,7 @@ export class Lightning {
       }
     };
     const bottom = [top[0] + (r() - 0.5) * 400, -2, top[2] + (r() - 0.5) * 400];
+    this.ground = [bottom[0], bottom[2], top[1]];
     walk(top, bottom, 0, 1, 1);
     const data = new Float32Array(segs.length * 8);
     segs.forEach((s, i) => data.set(s, i * 8));

@@ -54,6 +54,7 @@ uniform float uTexel[4];
 uniform sampler2D uEnv;          // reflection environment (equirect, mips = roughness)
 uniform float uUnresolved;       // unresolved mean square slope (Cox-Munk remainder)
 uniform float uMssTotal;         // total mean square slope of the surface (Cox-Munk)
+uniform vec4 uBolt;              // ground strike: foot xz, channel top height, channel radiance (0: none)
 uniform float uHs;
 uniform vec3 uRrs;               // water-leaving remote sensing reflectance (1/sr)
 uniform vec3 uSSS;               // crest scatter colour * strength
@@ -154,7 +155,8 @@ void main() {
     // waves break on the crests of the energetic (dominant) waves: whitecaps cluster there
     float crest = smoothstep(-0.2 * uHs, 0.3 * uHs, vDisp);
     foamRaw *= mix(0.65, 1.3, crest);
-    activeRaw = textureGrad(uActive, smoothUv(u1, uSize[1] / uTexel[1]), dFdx(u1) * 0.7, dFdy(u1) * 0.7).r * 1.3;
+    // (a soft density ramp: the bubble pattern, not the field's outline, shapes the cap)
+    activeRaw = textureGrad(uActive, u1, dFdx(u1) * 1.6, dFdy(u1) * 1.6).r * 1.3;
     activeRaw *= mix(0.6, 1.35, crest);
     // bubble plume: the same foam fields blurred over a few metres (bubbles spread and sink)
     vec4 b1 = texture(uDisp[1], u1, 1.2);
@@ -253,6 +255,22 @@ void main() {
       }
       sun *= k / lam;
     }
+  }
+
+  // the lightning channel mirrored by the rough sea: a glitter column under the strike
+  if (uBolt.w > 0.0) {
+    vec2 toB = uBolt.xy - P.xz;
+    float dh = max(length(toB), 1.0);
+    vec2 rh = R.xz / max(length(R.xz), 1e-4);
+    float ang = acos(clamp(dot(rh, toB / dh), -1.0, 1.0));
+    // reflected directions spread by twice the facet slope spread
+    float lobeW = max(2.0 * sqrt(0.5 * (sigmaSq.x + sigmaSq.y)), 3.0 / dh);
+    float elev = R.y / max(length(R.xz), 1e-4);
+    float span = smoothstep(-0.005, 0.01, elev) * (1.0 - smoothstep(0.7, 1.0, elev * dh / max(uBolt.z, 1.0)));
+    // a channel ~2 m wide seen through a slope lobe of width lobeW: its radiance spreads over the lobe
+    float spread = (2.0 / dh) / (lobeW * 2.5066);
+    // (only the brightest part of the channel, near the sea, is not hidden by rain and cloud: ~3%)
+    sun += F * vec3(0.82, 0.86, 1.0) * uBolt.w * 0.03 * exp(-ang * ang / (2.0 * lobeW * lobeW)) * span * min(spread, 1.0);
   }
 
   // water-leaving radiance (deep, optically infinite water)

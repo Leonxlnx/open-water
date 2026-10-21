@@ -285,6 +285,9 @@ export class App {
       uRrs: mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], smoothstep(5, 24, S.wind)), [0.0016, 0.0028, 0.0026], smoothstep(0.1, 0.8, L.rain)), uSSS: [0.004, 0.05, 0.042],
       uGust: [0.35 + 0.45 * smoothstep(3, 9, S.wind) * (1 - smoothstep(16, 24, S.wind)), this.gustDrift[0], this.gustDrift[1]],
       uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(14, 22, S.wind) * 0.45, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
+      // a visible ground strike: channel foot xz, cloud base, channel radiance (as drawn, through the rain)
+      uBolt: this.lightning.ground && this.lightning.bolt > 0.01 && this.lightning.strike?.ground
+        ? [this.lightning.ground[0], this.lightning.ground[1], this.lightning.ground[2], this.lightning.bolt * 2600 * (this.boltT ?? 1)] : [0, 0, 0, 0],
       uFoamTex: this.foam.tex, uWindDir: [Math.cos(wd), Math.sin(wd)], uFoamStretch: Math.min(Math.max((S.wind - 10) / 8, 0), 1), uDebug: 0,
     };
     this.water.draw(this.waterUniforms);
