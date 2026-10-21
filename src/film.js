@@ -1,49 +1,68 @@
 // The 60-second film: deterministic weather + camera timelines (keyframes, smooth interpolation),
-// in two acts. I: golden-hour calm. II: a squall line crosses the sea towards the camera, the sunlit
-// foreground against a black wall of cloud and rain, then gale, downpour and lightning.
+// in three acts. I: golden-hour calm. II: a squall line crosses the sea towards the camera, the
+// sunlit foreground against a black wall of cloud and rain, then gale, downpour and lightning.
+// III: night after the storm, a moonlit swell, the storm bank flickering silently on the horizon.
 
 const smooth = (t) => t * t * (3 - 2 * t);
 
 const ACT1 = {
-  start: 0, end: 21,
+  start: 0, end: 17,
   weather: [
     [0, { wind: 3.0, windDir: 20, clouds: 0.22, cloudDark: 0, cloudBase: 1500, rain: 0, mist: 0, haze: 1.4, choppy: 0.75, waveScale: 1, swellHs: 1.0, swellDir: 40, sunElev: 5, sunAz: 205, lightning: 0, fetch: 400, front: 0 }],
-    [21, { wind: 6.5, clouds: 0.3, haze: 1.5, choppy: 0.85, swellHs: 1.15, sunElev: 4.4, fetch: 700 }],
+    [17, { wind: 6.0, clouds: 0.3, haze: 1.5, choppy: 0.85, swellHs: 1.15, sunElev: 4.5, fetch: 700 }],
   ],
   camera: [
     [0, { yaw: 197, pitch: 1.4, eye: 2.4, fov: 40 }],
-    [21, { yaw: 186, pitch: 0.8, eye: 2.8, fov: 42 }],
+    [17, { yaw: 187, pitch: 0.8, eye: 2.8, fov: 42 }],
   ],
 };
 
 const ACT2 = {
-  start: 21, end: 60,
+  start: 17, end: 48,
   weather: [
-    [21, { wind: 9, windDir: 230, clouds: 0.42, cloudDark: 0.05, cloudBase: 950, rain: 0, mist: 0, haze: 2, choppy: 0.9, waveScale: 1, swellHs: 1.4, swellDir: 215, sunElev: 30, sunAz: 228, lightning: 0, fetch: 900,
-      front: 1, frontDist: 17000, frontAz: 52, frontWidth: 2600, sClouds: 0.97, sDark: 0.9, sBase: 650, sRain: 0.6, sMist: 0.15 }],
-    [32, { wind: 12, frontDist: 7500, haze: 2.5, choppy: 0.95, swellHs: 1.7 }],
-    [40, { wind: 17, frontDist: 0, haze: 2.8, choppy: 1.0, swellHs: 2.2, fetch: 1500 }],
-    [47, { wind: 22, frontDist: -4000, haze: 3, choppy: 1.05, swellHs: 2.8 }],
-    [60, { wind: 23.5, frontDist: -6500, haze: 3, choppy: 1.05, swellHs: 3.0 }],
+    [17, { wind: 9, windDir: 230, clouds: 0.42, cloudDark: 0.05, cloudBase: 950, rain: 0, mist: 0, haze: 2, choppy: 0.9, waveScale: 1, swellHs: 1.4, swellDir: 215, sunElev: 30, sunAz: 228, lightning: 0, fetch: 900,
+      front: 1, frontDist: 16000, frontAz: 52, frontWidth: 2600, sClouds: 0.97, sDark: 0.9, sBase: 650, sRain: 0.6, sMist: 0.15 }],
+    [26, { wind: 12, frontDist: 7000, haze: 2.4, choppy: 0.95, swellHs: 1.7 }],
+    [33, { wind: 17, frontDist: 0, haze: 2.8, choppy: 1.0, swellHs: 2.2, fetch: 1500 }],
+    [40, { wind: 22, frontDist: -4000, haze: 3, choppy: 1.05, swellHs: 2.8 }],
+    [48, { wind: 23.5, frontDist: -6000, haze: 3, choppy: 1.05, swellHs: 3.0 }],
   ],
   camera: [
-    [21, { yaw: 62, pitch: 3.2, eye: 2.6, fov: 46 }],
-    [36, { yaw: 50, pitch: 5.0, eye: 3.0, fov: 52 }],
-    [48, { yaw: 38, pitch: 7.0, eye: 3.4, fov: 56 }],
-    [60, { yaw: 30, pitch: 6.0, eye: 3.6, fov: 58 }],
+    [17, { yaw: 62, pitch: 3.2, eye: 2.6, fov: 46 }],
+    [30, { yaw: 50, pitch: 5.0, eye: 3.0, fov: 52 }],
+    [40, { yaw: 38, pitch: 7.0, eye: 3.4, fov: 56 }],
+    [48, { yaw: 32, pitch: 6.0, eye: 3.6, fov: 58 }],
   ],
 };
 
-// scripted strikes in the storm: time (s), distance (m), bearing relative to the camera (rad).
+const ACT3 = {
+  start: 48, end: 60,
+  weather: [
+    [48, { wind: 5.5, windDir: 230, clouds: 0.2, cloudDark: 0, cloudBase: 1400, rain: 0, mist: 0, haze: 1.6, choppy: 0.8, waveScale: 1, swellHs: 2.4, swellDir: 225, sunElev: -14, sunAz: 30, lightning: 0, fetch: 600,
+      front: 1, frontDist: 26000, frontAz: 245, frontWidth: 3000, sClouds: 0.95, sDark: 0.85, sBase: 700, sRain: 0.6, sMist: 0.15 }],
+    [60, { wind: 4.5, swellHs: 2.2, frontDist: 27500 }],
+  ],
+  camera: [
+    [48, { yaw: 222, pitch: 2.6, eye: 2.6, fov: 48 }],
+    [60, { yaw: 230, pitch: 2.2, eye: 2.4, fov: 46 }],
+  ],
+};
+
+// scripted strikes: time (s), distance (m), bearing relative to the camera (rad).
 // Thunder arrives dist / 343 m/s later: the early, distant strikes are seen long before heard.
 export const STRIKES = [
-  { t: 29.0, dist: 12500, rel: 0.12, ground: true, power: 0.9 },
-  { t: 34.2, dist: 7200, rel: -0.22, ground: true, power: 1.0 },
-  { t: 38.6, dist: 4000, rel: 0.3, ground: false, power: 0.9 },
-  { t: 43.0, dist: 2100, rel: -0.1, ground: true, power: 1.1 },
-  { t: 47.2, dist: 1250, rel: 0.05, ground: true, power: 1.35 },
-  { t: 51.6, dist: 2600, rel: -0.38, ground: false, power: 0.9 },
-  { t: 55.4, dist: 800, rel: 0.14, ground: true, power: 1.45 },
+  { t: 24.5, dist: 10500, rel: 0.12, ground: true, power: 0.9 },
+  { t: 28.6, dist: 6200, rel: -0.22, ground: true, power: 1.0 },
+  { t: 31.8, dist: 2600, rel: 0.3, ground: false, power: 0.9 },
+  { t: 35.4, dist: 1800, rel: -0.1, ground: true, power: 1.1 },
+  { t: 39.2, dist: 1150, rel: 0.05, ground: true, power: 1.35 },
+  { t: 43.1, dist: 1900, rel: -0.38, ground: false, power: 0.9 },
+  { t: 45.6, dist: 750, rel: 0.14, ground: true, power: 1.45 },
+  // act III: the departing storm, 27+ km away: flashes in the cloud bank, no audible thunder
+  { t: 51.2, dist: 29000, rel: 0.42, ground: false, power: 1.3 },
+  { t: 54.0, dist: 31000, rel: 0.5, ground: false, power: 1.1 },
+  { t: 55.1, dist: 30000, rel: 0.38, ground: false, power: 1.4 },
+  { t: 58.3, dist: 32000, rel: 0.47, ground: false, power: 1.2 },
 ];
 
 function sample(keys, t) {
@@ -58,8 +77,8 @@ function sample(keys, t) {
   return out;
 }
 
-const ACTS = [ACT1, ACT2];
-const actAt = (t) => (t < ACT2.start ? 0 : 1);
+const ACTS = [ACT1, ACT2, ACT3];
+const actAt = (t) => { let i = 0; while (i < ACTS.length - 1 && t >= ACTS[i + 1].start) i++; return i; };
 
 export const film = {
   duration: 60,
@@ -67,11 +86,11 @@ export const film = {
   actAt,
   weatherAt: (t) => sample(ACTS[actAt(t)].weather, t),
   cameraAt: (t) => sample(ACTS[actAt(t)].camera, t),
-  // dip to black around the cut
+  // dips to black around the cuts, fade in at the start and out at the end
   fadeAt: (t) => {
-    const d = Math.abs(t - ACT2.start);
-    const fin = Math.min(t / 1.2, 1), fout = Math.min((60 - t) / 1.5, 1);
-    return Math.min(smooth(Math.min(d / 0.4, 1)), smooth(Math.max(fin, 0)), smooth(Math.max(fout, 0)));
+    let f = Math.min(smooth(Math.min(Math.max(t / 1.2, 0), 1)), smooth(Math.min(Math.max((60 - t) / 1.8, 0), 1)));
+    for (const a of ACTS.slice(1)) f = Math.min(f, smooth(Math.min(Math.abs(t - a.start) / 0.45, 1)));
+    return f;
   },
   strikes: STRIKES,
 };

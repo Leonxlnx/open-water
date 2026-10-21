@@ -142,7 +142,7 @@ void main() {
   float avg = clamp(adapt.r, uMinLum, uMaxLum);
   c *= adapt.gba;
   float exposure = uManualExposure > 0.0 ? uManualExposure : 0.18 / avg;
-  exposure *= exp2(-2.3 * uNight);
+  exposure *= exp2(-2.8 * uNight);
   exposure *= exp2(uExposureBias) / (1.0 + uFlashExposure);
   c *= exposure * uFade;
   float scot = uNight;

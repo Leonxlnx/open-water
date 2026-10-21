@@ -84,6 +84,12 @@ export class UI {
       if (k === 't') this.root.classList.toggle('open');
       if (k === 'm') this.toggleSound();
       if (k === 'l') this.app.lightning.trigger(this.app.cam, { base: W.state.cloudBase });
+      if (k === 'n') {
+        // toggle moonlit night and back to the previous sun height
+        const e = W.timeTarget.sunElev;
+        if (e > -7) { this.daySun = e; W.set('sunElev', -12); } else W.set('sunElev', this.daySun ?? 18);
+        this.sync();
+      }
       if (k === 'f') document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
       const idx = ['1', '2', '3', '4'].indexOf(k);
       if (idx >= 0) { W.setPreset(Object.keys(PRESETS)[idx]); this.sync(); }

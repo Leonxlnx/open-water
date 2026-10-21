@@ -218,8 +218,9 @@ export class App {
       top: S.cloudBase + 1800 + S.cloudDark * 5200, density: 0.11 - S.cloudDark * 0.05, dark: S.cloudDark,
       front: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0],
       stormA: [S.sClouds, S.sDark, 0.11 - S.sDark * 0.05, S.sBase], stormTop: S.sBase + 1800 + S.sDark * 5200,
-      flash: [lp[0], lp[1], lp[2], flash * 0.6], flashColor: [0.75, 0.8, 1.0], blend: flash > 0.02 ? 0.85 : QUALITY.blend, steps: QUALITY.steps,
+      flash: [lp[0], lp[1], lp[2], flash * 0.6 * nightGain], flashColor: [0.75, 0.8, 1.0], blend: flash > 0.02 ? 0.85 : QUALITY.blend, steps: QUALITY.steps,
       lightSteps: QUALITY.lightSteps, lightDetail: QUALITY.lightDetail, check: QUALITY.check,
+      shapeLod: params.has('shapelod') ? Number(params.get('shapelod')) : -1,
     };
     P.section('clouds');
     this.clouds.render(skyU, cloudU, { pos: this.cam.pos, inv: M.inv, vp: M.vp });
@@ -323,7 +324,7 @@ export class App {
     };
     const strikes = film.strikes.map((s) => ({ t: s.t, dist: s.dist, power: s.power }));
     // sound follows the picture fades, but only dips (not silence) at the cut between acts
-    const gainAt = (t) => Math.max(film.fadeAt(t), Math.abs(t - film.acts[1].start) < 1 ? 0.35 : 0);
+    const gainAt = (t) => Math.max(film.fadeAt(t), film.acts.slice(1).some((a) => Math.abs(t - a.start) < 1) ? 0.35 : 0);
     const buf = await renderSoundtrack(film.duration, paramsAt, strikes, 48000, gainAt);
     return encodeWav(buf);
   }

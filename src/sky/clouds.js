@@ -100,6 +100,7 @@ uniform float uDark;          // storm darkness 0..1
 uniform vec4 uFront;          // squall front: xy unit normal (towards the storm), z offset (m), w width (0 = off)
 uniform vec4 uStormA;         // storm side: coverage, darkness, density, base
 uniform float uStormTop;      // storm side: top (m)
+uniform float uShapeLod;      // debug: <0 automatic mip selection
 uniform vec4 uFlash;          // lightning position xyz (m), intensity
 uniform vec3 uFlashColor;
 const float RG_M = 6360000.0;
@@ -140,9 +141,11 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   vec2 wuv = (p.xz + uWindOffset.xz) / 30000.0;
   vec4 wm = texture(uWeather, wuv);
   float c = smoothstep(1.0 - cov - 0.18, 1.0 - cov + 0.2, wm.r * 0.85 + wm.b * 0.25 * cov);
+  // an overcast deck is closed: no column-shaped gaps from the 2D coverage map
+  c = max(c, smoothstep(0.82, 0.96, cov));
   if (c <= 0.001) return 0.0;
   vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / 3000.0;
-  vec4 n = texture(uShape, sp);
+  vec4 n = uShapeLod < 0.0 ? texture(uShape, sp) : textureLod(uShape, sp, uShapeLod);
   float wf = n.g * 0.625 + n.b * 0.25 + n.a * 0.125;
   // vertical profile. Fair weather: cumulus towers with type-dependent tops.
   // Storm: a layer deck whose base undulates (rolls, scud) and whose thickness varies 2-3x,
@@ -242,15 +245,17 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       float hf = clamp((h - base) / (top - base), 0.0, 1.0);
       // light march towards the sun (geometric step growth)
       float tau = 0.0;
-      float ls = 45.0;
+      // far away the light path must still span the cloud (few long steps), or shading follows noise
+      float ls = nearField ? 45.0 : 220.0;
+      float lgrow = nearField ? 1.85 : 3.2;
       vec3 lp = p;
       for (int j = 0; j < 8; j++) {
-        if (j >= (nearField ? lightSteps : 2)) break;
+        if (j >= (nearField ? lightSteps : 3)) break;
         lp += uSunDir * ls;
         float lh = heightOf(lp);
         if (lh > sT || lh < sB - 50.0) break;
         tau += cloudDensity(lp, lh, j < lightDetail) * ls;
-        ls *= 1.85;
+        ls *= lgrow;
       }
       // scud sits under the deck: sunlight must cross the whole layer above it
       if (h < base) tau += R.z * (top - base) * 0.25 / max(uSunDir.y, 0.1);
@@ -447,7 +452,7 @@ export class Clouds {
       uShape: this.shape, uDetail: this.detail, uWeather: this.weatherMap,
       uWindOffset: u.windOffset, uCoverage: u.coverage, uBase: u.base, uTop: u.top,
       uDensity: u.density, uDark: u.dark, uFlash: u.flash, uFlashColor: u.flashColor,
-      uFront: u.front || [1, 0, 0, 0], uStormA: u.stormA || [0, 0, 0, 0], uStormTop: u.stormTop || 0,
+      uShapeLod: u.shapeLod ?? -1, uFront: u.front || [1, 0, 0, 0], uStormA: u.stormA || [0, 0, 0, 0], uStormTop: u.stormTop || 0,
     };
   }
 

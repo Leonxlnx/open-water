@@ -41,6 +41,12 @@ land. Rain curtains have shafts, and visibility falls with rain rate. Lightning 
 return strokes, a fractal branched channel and in-cloud illumination. Thunder arrives at 343 m/s
 and loses its high frequencies with distance.
 
+**Night.** The full moon takes over as the light source after civil twilight. This gives a
+moon glitter path, moonlit clouds and a halo in the haze. Stars are point sources with physical
+flux: the magnitude distribution N(<m) ∝ 10^(0.5m), colour temperatures, extinction, and
+scintillation near the horizon. They show only once the sky is dark enough. A scotopic
+(Purkinje) shift drains colour and tints the low light blue.
+
 **Camera and image.** The camera floats on the sea, heaving, pitching and rolling with waves
 longer than a small boat. Exposure uses incident-light metering with partial white balance,
 followed by AgX tone mapping, an energy-conserving bloom and film grain.
@@ -80,6 +86,7 @@ Problems found and fixed this way included:
 | `1`–`4` | Calm · Breeze · Rain · Storm |
 | `T` | tuning sheet: wind, waves, chop, rain, clouds, lightning, sun |
 | `L` | lightning strike |
+| `N` | moonlit night (and back) |
 | `M` | sound |
 | `H` | hide the interface |
 | `F` | fullscreen |
