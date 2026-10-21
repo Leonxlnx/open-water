@@ -63,6 +63,8 @@ vec3 rainRipples(vec2 xz, float t, float rain, float dist, float pix) {
     s += rippleLayer(xz, t + 0.73, 0.27, 0.65, density * 0.8, 9.1);
     s += rippleLayer(xz, t + 0.17, 0.1, 0.45, density * 0.85, 13.3);
     s += rippleLayer(xz, t + 0.49, 0.12, 0.5, density * 0.85, 17.9);
+    s += rippleLayer(xz, t + 0.23, 0.05, 0.33, density * 0.85, 21.7);
+    s += rippleLayer(xz, t + 0.61, 0.06, 0.35, density * 0.85, 25.3);
     s *= near;
     // ~2600 impacts per m2 and second at the heaviest rate; resolved only within a few metres
     float cr = 1.0 - smoothstep(0.003, 0.006, pix);

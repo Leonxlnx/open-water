@@ -55,6 +55,8 @@ uniform float uTexel[4];
 uniform sampler2D uEnv;          // reflection environment (equirect, mips = roughness)
 uniform float uUnresolved;       // unresolved mean square slope (Cox-Munk remainder)
 uniform float uMssTotal;         // total mean square slope of the surface (Cox-Munk)
+uniform float uLongSlope;        // rms slope of the dominant (1800 m cascade) waves
+uniform float uGlintArea;        // area of a glinting capillary facet (m2)
 uniform vec4 uBolt;              // ground strike: foot xz, channel top height, channel radiance (0: none)
 uniform float uHs;
 uniform vec3 uRrs;               // water-leaving remote sensing reflectance (1/sr)
@@ -129,6 +131,9 @@ void main() {
   float footA = max(length(cross(dFdx(P), dFdy(P))), 1e-9);
   vec3 toCam = uCamPos - P;
   float dist = length(toCam);
+  // footprint-aligned cells of about one pixel (for per-pixel random events: glints, impacts)
+  vec2 ex = dFdx(vXZ), ey = dFdy(vXZ), qc = vXZ - uCamPos.xz;
+  vec2 gCell = floor(vec2(dot(qc, ex) / max(dot(ex, ex), 1e-12), dot(qc, ey) / max(dot(ey, ey), 1e-12)));
   vec3 V = toCam / dist;
 
   // slopes and their variance from all cascades (hardware anisotropic + trilinear filtering)
@@ -139,9 +144,13 @@ void main() {
   vec2 gq = vXZ - uGust.yz;
   float gust = gnoise(gq / 210.0) * 0.6 + gnoise(gq / 70.0 + 7.3) * 0.4;
   float crestM = smoothstep(-0.3 * uHs, 0.3 * uHs, vDisp);
-  float sm = clamp((1.0 + uGust.x * (gust - 0.5) * 1.7) * mix(0.8, 1.25, crestM), 0.35, 1.9);
 #define SLOPE(c, k) { vec4 m = texture(uSlope[c], vXZ / uSize[c]); s += m.xy * k; var += max(m.zw - m.xy * m.xy, vec2(0.0)) * k * k; }
-  SLOPE(0, 1.0) SLOPE(1, 1.0) SLOPE(2, sm) SLOPE(3, sm)
+  SLOPE(0, 1.0)
+  // the forward (downwind) faces of the dominant waves: steep short waves and breaking live there
+  float face = smoothstep(0.0, 1.0, -dot(s, uWindDir) / max(uLongSlope, 0.01));
+  float hm = clamp(0.6 * crestM + 0.4 * face, 0.0, 1.0);
+  float sm = clamp((1.0 + uGust.x * (gust - 0.5) * 1.0) * mix(0.55, 1.6, hm), 0.35, 2.0);
+  SLOPE(1, mix(1.0, sm, 0.5)) SLOPE(2, sm) SLOPE(3, sm)
   float foamRaw = 0.0;
   float plume = 0.0;
   float activeRaw = 0.0;
@@ -157,11 +166,14 @@ void main() {
     float crest = smoothstep(-0.2 * uHs, 0.3 * uHs, vDisp);
     foamRaw *= mix(0.65, 1.3, crest);
     // (a soft density ramp: the bubble pattern, not the field's outline, shapes the cap)
-    activeRaw = textureGrad(uActive, u1, dFdx(u1) * 1.6, dFdy(u1) * 1.6).r * 1.3
-              + textureGrad(uActive0, u0, dFdx(u0) * 1.2, dFdy(u0) * 1.2).r * 0.8;
-    activeRaw *= mix(0.6, 1.35, crest);
+    // (the crest moves downwind: a point collects the froth of crests now 1.5-5 m downwind of it)
+    vec2 ga = dFdx(u1) * 1.6, gb = dFdy(u1) * 1.6, wo = uWindDir / uSize[1];
+    float aT = textureGrad(uActive, u1, ga, gb).r + textureGrad(uActive, u1 + wo * 1.5, ga, gb).r * 0.8
+             + textureGrad(uActive, u1 + wo * 3.0, ga, gb).r * 0.55 + textureGrad(uActive, u1 + wo * 5.0, ga, gb).r * 0.3;
+    activeRaw = aT * 0.45 + textureGrad(uActive0, u0, dFdx(u0) * 1.2, dFdy(u0) * 1.2).r * 0.8;
+    activeRaw *= mix(0.6, 1.35, crest) * mix(0.6, 1.4, face);
     // bubble plume: the same foam fields blurred over a few metres (bubbles spread and sink)
-    vec4 b1 = texture(uDisp[1], u1, 1.2);
+    vec4 b1 = texture(uDisp[1], u1, 2.5);
     plume = clamp(b1.w * mix(0.5, 1.3, crest), 0.0, 2.0);
   }
 
@@ -169,7 +181,7 @@ void main() {
   vec3 rr = rainRipples(vXZ, uTime, uRain, dist, sqrt(footA));
   s += rr.xy;
   // unresolved capillary roughness: sparkles near the camera, smooth BRDF lobe far away
-  float unres = uUnresolved * 0.5 * mix(0.35, 1.0, smoothstep(4.0, 400.0, dist)) * sm * sm;
+  float unres = uUnresolved * 0.5 * sm * sm;
   vec2 sigmaSq = var + vec2(unres);
   sigmaSq = max(sigmaSq, vec2(2e-5));
 
@@ -197,36 +209,41 @@ void main() {
 
   // reflection of the sky / clouds, blurred by the unresolved roughness
   vec3 R = reflect(-V, N);
-  // a ray reflected downwards hits another wave: it sees a second, dimmer reflection of the
-  // sky near the horizon rather than the sky above (mirroring it up gives bright crest lines).
-  // The reflected lobe has an angular width ~2 sigma: blend by the fraction below the horizon,
-  // which avoids binary per-pixel dashes where R.y changes sign.
+  float dR = length(fwidth(R));
+  vec3 Ed = uSunE * sunVis * max(L.y, 0.0) + uSkyE + uFlash * 0.3;
+  // on a rough sea the facets we see lean toward us (Smith masking): the reflected rays rise
+  R.y += 1.5 * sigmaV * (1.0 - nv);
+  // a ray reflected downwards hits the next wave: it sees that wave's water and, reflected once
+  // more, the sky about two rms slopes up (not the brightest band at the horizon). The lobe has
+  // an angular width ~2 sigma: blend by the fraction below the horizon (no per-pixel dashes).
   float lobe = 2.0 * sqrt(sigmaSq.x + sigmaSq.y) + 0.02;
   float below = smoothstep(-lobe, lobe, -R.y);
-  R.y = abs(R.y) * mix(1.0, 0.15, below);
-  // extended sources (sky, clouds) are blurred by the full capillary roughness; only the
-  // sun's tiny disk is allowed to resolve into individual sparkles near the camera
-  float rough = sqrt(sigmaSq.x + sigmaSq.y + uUnresolved * 0.25 * (1.0 - smoothstep(4.0, 400.0, dist)));
+  float s2 = sqrt(0.5 * (sigmaSq.x + sigmaSq.y));
+  float F2 = 0.02 + 0.98 * pow(1.0 - clamp(abs(R.y) + s2, 0.0, 1.0), 5.0);
+  R.y = abs(R.y) + below * 2.0 * s2;
+  R = normalize(R);
+  // extended sources (sky, clouds) are blurred by the full capillary roughness, except near the
+  // camera where only the sun's tiny disk resolves into sparkles
+  float rough = sqrt(max(sigmaSq.x + sigmaSq.y - 2.0 * unres * (1.0 - mix(0.35, 1.0, smoothstep(4.0, 400.0, dist))), 4e-5));
   // mip from the BRDF width and from the spread of reflected directions within the pixel
-  float dR = length(fwidth(R));
   float envLod = clamp(max(log2(rough * 96.0), log2(dR * 256.0 / 3.14159) + 0.5), 0.0, 7.0);
-  vec3 sky = envSample(R, envLod) * mix(1.0, 0.35, below);
+  vec3 sky = envSample(R, envLod) * mix(1.0, F2, below) + below * (1.0 - F2) * uRrs * Ed;
   vec3 refl = F * sky;
   // rain impact stipple where a single impact (crater + crown, ~2 cm2) is about pixel-sized: a
   // Poisson count of impacts within the ~60 ms they stay visible; craters see the lower sky
   // (darker), crowns catch the light (brighter)
   if (uRain > 0.01) {
     float pix = sqrt(footA);
-    float vis = smoothstep(0.003, 0.006, pix) * (1.0 - smoothstep(0.05, 0.12, pix));
+    float vis = smoothstep(0.003, 0.006, pix) * (1.0 - smoothstep(0.15, 0.4, pix));
     if (vis > 0.0) {
-      float lamI = 2600.0 * uRain * footA * 0.06;
-      vec2 cell = floor(vXZ / pix);
+      float lamI = 2600.0 * uRain * footA * 0.5;
+      vec2 cell = gCell;
       float u1 = fract(sin(dot(vec3(cell, floor(uTime * 16.0)), vec3(12.9898, 78.233, 45.164))) * 43758.5453);
       float u2 = fract(u1 * 91.73 + 0.37);
       float pk = exp(-lamI), cdf = pk, k = 0.0;
       for (int i = 0; i < 12; i++) { if (u1 <= cdf) break; k += 1.0; pk *= lamI / k; cdf += pk; }
       float frac = min(2e-4 / footA, 1.0);
-      refl *= 1.0 + clamp((k - lamI) * frac, -0.6, 1.0) * (u2 < 0.4 ? 0.7 : -0.45) * vis;
+      refl *= 1.0 + clamp((k - lamI) * frac, -0.6, 1.0) * (u2 < 0.75 ? 0.7 : -0.2) * vis;
     }
   }
 
@@ -241,9 +258,9 @@ void main() {
     float fH = 0.02 + 0.98 * pow(max(1.0 - dot(V, Hs), 0.0), 5.0);
     // (glinting capillary facets of a few cm2)
     float lam = dot(sun, vec3(0.2126, 0.7152, 0.0722)) / max(dot(uSunE * sunVis, vec3(0.2126, 0.7152, 0.0722)), 1e-9)
-              * 6.8e-5 / fH * (footA / 3e-4);
+              * 6.8e-5 / fH * (footA / uGlintArea);
     if (lam > 1e-7 && lam < 400.0) {
-      vec2 cell = floor(vXZ / sqrt(footA));
+      vec2 cell = gCell;
       float u = fract(sin(dot(vec3(cell, floor(uTime * 30.0)), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
       float k = 0.0;
       if (lam < 12.0) {
@@ -276,7 +293,6 @@ void main() {
   }
 
   // water-leaving radiance (deep, optically infinite water)
-  vec3 Ed = uSunE * sunVis * max(L.y, 0.0) + uSkyE + uFlash * 0.3;
   vec3 body = uRrs * Ed * (1.0 - F) / 0.98;
 
   // crest subsurface scattering (light transmitted through thin backlit crests)
@@ -289,7 +305,7 @@ void main() {
 
   // submerged bubbles backscatter strongly: the water around and beneath whitecaps turns pale aquamarine
   float pl = (1.0 - exp(-plume * uFoamAmount * 1.8)) * (1.0 - smoothstep(150.0, 900.0, dist) * 0.6);
-  body += (1.0 - F) * pl * vec3(0.03, 0.05, 0.042) * Ed / M_PI;
+  body += (1.0 - F) * pl * vec3(0.07, 0.12, 0.10) * Ed / M_PI;
   vec3 col = refl * uDbgMask.x + sun * uDbgMask.y + (body + sss) * uDbgMask.z;
   col += (1.0 - F) * uRain * 0.035 * smoothstep(3.0, 40.0, dist) * (uSkyE + uSunE * sunVis * max(L.y, 0.0)) / M_PI;
 
@@ -301,9 +317,9 @@ void main() {
     // bubble layer: thick fresh foam is a bright diffuse scatterer (albedo ~0.8);
     // thin residual foam is translucent and picks up the water's blue-green
     float thick = fc.y;
-    vec3 Nf = normalize(vec3(-s.x * 0.5 + foamBump.x, 1.0, -s.y * 0.5 + foamBump.y));
+    vec3 Nf = normalize(vec3(-s.x * 0.5 + foamBump.x * 1.8, 1.0, -s.y * 0.5 + foamBump.y * 1.8));
     float wrapL = max((dot(Nf, L) + 0.35) / 1.35, 0.0);
-    vec3 Ein = uSunE * sunVis * wrapL + uSkyE + uFlash;
+    vec3 Ein = uSunE * sunVis * wrapL + uSkyE * (0.45 + 0.55 * Nf.y) + uFlash;
     // bubble foam scatters like a diffuse white layer (albedo ~0.6-0.85); only its thinnest
     // parts let a little of the blue-green water show through
     float albedo = mix(0.45, 0.86, thick);

@@ -279,7 +279,7 @@ export class App {
     this.waterUniforms = {
       ...skyU, ...fogU,
       uViewProj: M.vp, uCamPos: this.cam.pos,
-      uDisp: ot.disp.slice(0, 3), uSlope: ot.slope, uActive: ot.active[1], uActive0: ot.active[0], uSize: ot.sizes, uTexel: ot.texels, uDispScale: 1,
+      uDisp: ot.disp.slice(0, 3), uSlope: ot.slope, uActive: ot.active[1], uActive0: ot.active[0], uLongSlope: Math.max(Math.sqrt(stats.bandMss[0] * 0.6), 0.01), uGlintArea: 2e-5, uSize: ot.sizes, uTexel: ot.texels, uDispScale: 1,
       uEnv: this.sky.env, uCloudShadow: this.clouds.shadow, uShadowRect: this.clouds.shadowRect,
       uUnresolved: stats.unresolved, uMssTotal: Math.max(stats.coxMunk, stats.resolvedMss + stats.unresolved), uHs: stats.hs,
       uRrs: mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], smoothstep(5, 24, S.wind)), [0.0016, 0.0028, 0.0026], smoothstep(0.1, 0.8, L.rain)), uSSS: [0.004, 0.05, 0.042],

@@ -113,12 +113,13 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   if (f < 0.003 && lace < 0.003 && act < 0.003) return vec2(0.0);
   // densities in [0, 1): residual (stage B, seconds to tens of seconds) and active breaking (stage A)
   float F = 1.0 - exp(-f * 1.3);
-  float A = min((1.0 - exp(-act * 0.8)) * smoothstep(0.3, 0.62, seg) * 1.3, 1.0);
+  float A = min((1.0 - exp(-act * 0.8)) * mix(0.3, 1.0, smoothstep(0.25, 0.6, seg)) * 1.2, 1.0);
   // coverage = P(pattern < density): foam fills the low values of a pattern field first.
   //  Pa, active froth: metre-scale churn plus the raft network, so the rim of a breaking crest
   //      frays into filaments and specks, and only the core is solid (with holes)
   //  Pr, residual foam: the raft network dominates, so decaying foam opens up into lace and marbling
-  float Pa = clamp(T * 0.8 + vein * 0.35 - 0.12 + (b.r - 0.5) * 0.25, 0.0, 1.0);
+  // (cap cores are solid; only the rims fray along the raft network)
+  float Pa = clamp(T * 0.8 + vein * 0.35 * (1.0 - smoothstep(0.5, 0.9, A)) - 0.12 + (b.r - 0.5) * 0.25, 0.0, 1.0);
   float Pr = clamp(vein * 0.85 + T * 0.3 - 0.1, 0.0, 1.0);
   // footprint of a pixel in metres (geometric mean of the axes: what anisotropic filtering resolves)
   float fpm = sqrt(length(dpx) * length(dpy));
@@ -166,7 +167,8 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   vec2 grad = abs(det) > 1e-12 ? inverse(Mj) * dT : vec2(0.0);
   grad = clamp(grad * 0.4, vec2(-1.5), vec2(1.5)) * (1.0 - far);
   foamBump = grad.x * w + grad.y * vec2(-w.y, w.x);
-  // lace is a thin translucent bubble film
+  // caps fade as they age downwind; lace is a thin translucent bubble film
+  thick *= mix(0.6, 1.0, A / (A + F + 1e-3));
   thick = max(thick, lc * 0.5);
   return vec2(max(cov, lc), thick);
 }

@@ -36,7 +36,7 @@ void main() {
   float crest = d0.y + d1.y;
   // spray is torn off crests that are breaking right now
   float act = textureLod(uActive, xz / uSize[1], 1.0).r;
-  float alive = smoothstep(0.15, 0.6, act) * step(0.0, crest) * uStrength;
+  float alive = smoothstep(0.05, 0.3, act) * step(0.0, crest) * uStrength;
   if (alive < 0.01 || aSeed.w > uStrength) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vAlpha = 0.0; return; }
   float T = age * life;
   vec3 start = vec3(xz.x + d0.x + d1.x, crest + 0.3, xz.y + d0.z + d1.z);
@@ -81,7 +81,7 @@ void main() {
   // streaky along the wind; seen end-on (no length to streak) an isotropic puff
   vec2 sc = mix(vec2(6.0, 6.0), vec2(2.5, 11.0), vAlong);
   float n = vn(vUv * sc) * 0.6 + vn(vUv * sc * 2.2 + 3.1) * 0.4;
-  float a = exp(-r * 2.2) * smoothstep(0.35, 0.85, n) * vAlpha * 0.45;
+  float a = exp(-r * 2.2) * smoothstep(0.35, 0.85, n) * vAlpha * 0.8;
   // fine droplets scatter skylight and sun (forward-scattering, like mist)
   // fine droplets scatter all wavelengths alike: the grey of the light around them
   vec3 Lc = skyIrradiance() * (0.9 / 3.14159) + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0) * 0.35 + uFlash * 0.3;

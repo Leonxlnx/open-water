@@ -102,7 +102,7 @@ out float vJet;
 float h1(float n) { return fract(sin(n) * 43758.5453); }
 void main() {
   if (aSeed.w > uCount) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
-  float period = 0.35 + aSeed.z * 0.5;
+  float period = 0.08 + aSeed.z * 0.07;
   float tt = uTime / period + aSeed.x * 17.0;
   float cyc = floor(tt);
   float ph = fract(tt);
@@ -194,7 +194,7 @@ export class Rain {
     gl.depthMask(false);
     // splashes first (on the surface), then streaks
     this.pSplash.use({
-      ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uTime: u.time, uRadius: 16,
+      ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uTime: u.time, uRadius: 7,
       uCount: Math.min(u.rain * 1.3, 1), uDisp: u.disp, uSize: u.sizes, uPixelAngle: u.pixelAngle,
       uFlash: u.flash, uGain: 2.4,
     });

@@ -19,11 +19,12 @@ the cell still flickering on the horizon.
 
 ## What is simulated
 
-**Waves.** Tessendorf FFT synthesis on the GPU with four cascades (640 m down to 3.7 m) and
+**Waves.** Tessendorf FFT synthesis on the GPU with four cascades (1800 m down to 3.7 m, so a gale's
+~300 m peak is carried by several modes and forms wave groups) and
 capillary-gravity dispersion. The wind sea uses the Elfouhaily et al. (1997) unified spectrum,
 whose short-wave regime is calibrated to Cox–Munk slope statistics. Spreading is Donelan–Banner
 near the peak and ECKV for short waves, plus a narrow-band swell. Choppy displacement gives
-trochoidal crests. Significant wave heights match the Beaufort table (Bf 5: 2.1 m, Bf 7: 4.8 m,
+trochoidal crests, steeper as the wind rises (young storm seas). Significant wave heights match the Beaufort table (Bf 5: 2.1 m, Bf 7: 4.8 m,
 Bf 9: 9.2 m), and the GPU statistics are checked against the spectrum (`tools/hscheck.mjs`).
 
 **Light on water.** A slope-variance (LEAN) BRDF after Bruneton, Neyret and Holzschuch (2010)
@@ -109,7 +110,7 @@ photography. The measurable parts are checked with tools:
 | --- | --- | --- |
 | Significant wave height, Bf 5 / 7 / 9 (`tools/hscheck.mjs`) | 2–2.5 / 4–5.5 / 7–10 m | 2.1 / 4.8 / 9.2 m |
 | GPU height variance vs. spectrum integral | equal | within sampling error (±10%) |
-| Whitecap coverage at 8.5 / 15 / 21 / 28 m/s (`tools/foam.mjs`) | Monahan 0.57 / 3.9 / 12.4 / 33 % | 0.54 / 4.1 / 12.1 / 28.9 % |
+| Whitecap coverage at 8.5 / 15 / 21 / 28 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 3.9 / 12.4 / 33 % | 0.60 / 3.7 / 11.6 / 27.7 % |
 | Thunder delay | distance / 343 m/s | exact |
 | Visibility in the heaviest rain (Koschmieder, 3.9 / β) | ~2–3 km | 3.0 km |
 | Tonal range vs. reference photos (`tools/tonestats.mjs`) | p10 ≈ 5–45, highlights ≈ 230–255 | shadows deepened, highlights reach white |
