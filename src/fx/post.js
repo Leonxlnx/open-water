@@ -138,7 +138,9 @@ vec3 agxLook(vec3 v) {
   // matching the tonal spread of reference photographs (p10 ~5-45, max ~240-255 of 255)
   v = max(v, vec3(0.0));
   float k = uLook.x, pv = uLook.y;
-  vec3 lo = pv * pow(v / pv, vec3(k));
+  // a gentler (near-linear) toe: deep shadows keep some separation
+  vec3 klo = mix(vec3(1.1), vec3(k), smoothstep(0.08, pv, v));
+  vec3 lo = pv * pow(v / pv, klo);
   vec3 hi = 1.0 - (1.0 - pv) * pow(max(1.0 - v, vec3(0.0)) / (1.0 - pv), vec3(k));
   v = mix(lo, hi, step(pv, v));
   v = max(v - uLook.w, vec3(0.0)) / (1.0 - uLook.w);
@@ -160,7 +162,7 @@ void main() {
   c *= exposure * uFade;
   float scot = uNight;
   float ly = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c = mix(c, ly * vec3(0.78, 0.9, 1.15), scot * 0.35);
+  c = mix(c, ly * vec3(0.78, 0.9, 1.15), scot * 0.12);
   vec2 d = vUv - 0.5;
   c *= 1.0 - uVignette * dot(d, d) * 1.6;
   c = agxEotf(agxLook(agx(c)));
@@ -239,7 +241,7 @@ export class Post {
       uMaxLum: opts.maxLum ?? 10,
       uTime: opts.time,
       uGrain: opts.grain ?? 0.012,
-      uLook: opts.look ?? [1.7, 0.4, 1.06, 0.012],
+      uLook: opts.look ?? [1.45, 0.4, 1.04, 0.004],
       uVignette: opts.vignette ?? 0.18,
       uFlashExposure: opts.flashExposure ?? 0,
       uManualExposure: opts.manualExposure ?? 0,

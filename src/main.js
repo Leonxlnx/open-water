@@ -24,7 +24,7 @@ const RENDER_MODE = params.has('render');
 const QUALITY = {
   rt: { cloudDiv: 3, steps: 44, lightSteps: 4, lightDetail: 1, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], angular: 400, upSteps: 2 },
   ultra: { cloudDiv: 1, steps: 128, lightSteps: 6, lightDetail: 3, blend: 0.3, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], angular: 640, upSteps: 4 },
-  high: { cloudDiv: 2, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.3, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], angular: 640, upSteps: 4 },
+  high: { cloudDiv: 1, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.3, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], angular: 640, upSteps: 4 },
 }[params.get('q') || (RENDER_MODE ? 'high' : 'rt')];
 
 export class App {
@@ -154,7 +154,7 @@ export class App {
     const P = this.prof;
     P.poll();
     P.begin('ocean');
-    this.ocean.lambda = S.choppy;
+    this.ocean.lambda = Math.max(S.choppy, W.choppyFor(S.wind));
     // wind drift of surface foam ~3% of U10 (plus a little Stokes drift)
     const wdr = (S.windDir * Math.PI) / 180;
     this.ocean.drift = [Math.cos(wdr) * 0.035 * S.wind, Math.sin(wdr) * 0.035 * S.wind];
@@ -210,7 +210,7 @@ export class App {
     const fogDensity = S.mist * 1.2e-3 + S.rain * 1.3e-3;
     const stormFog = S.sMist * 1.2e-3 + S.sRain * 1.3e-3;
     const fogU = {
-      uFogDensity: fogDensity, uFogTop: fOn ? S.sBase + 150 : S.cloudBase + 100,
+      uFogDensity: fogDensity, uFogTop: fOn ? (S.cloudBase + S.sBase) * 0.5 + 100 : S.cloudBase + 100,
       uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0], uFogStorm: [stormFog, 0.32],
       uFogCam: [this.cam.pos[0], this.cam.pos[2]],
       uFlashFog: flashRGB.map((x) => x * 0.25), uFlashDir: flashDir,
@@ -266,7 +266,7 @@ export class App {
       uDisp: ot.disp.slice(0, 3), uSlope: ot.slope, uActive: ot.active[1], uSize: ot.sizes, uTexel: ot.texels, uDispScale: 1,
       uEnv: this.sky.env, uCloudShadow: this.clouds.shadow, uShadowRect: this.clouds.shadowRect,
       uUnresolved: stats.unresolved, uMssTotal: Math.max(stats.coxMunk, stats.resolvedMss + stats.unresolved), uHs: stats.hs,
-      uRrs: mixv([0.00022, 0.0019, 0.0088], [0.0011, 0.0038, 0.0038], Math.max(smoothstep(9, 24, S.wind), smoothstep(0.1, 0.8, L.rain) * 0.75)), uSSS: [0.004, 0.05, 0.042],
+      uRrs: mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], smoothstep(5, 24, S.wind)), [0.0016, 0.0028, 0.0026], smoothstep(0.1, 0.8, L.rain)), uSSS: [0.004, 0.05, 0.042],
       uGust: [0.35 + 0.45 * smoothstep(3, 9, S.wind) * (1 - smoothstep(16, 24, S.wind)), this.gustDrift[0], this.gustDrift[1]],
       uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(14, 22, S.wind) * 0.45, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
       uFoamTex: this.foam.tex, uWindDir: [Math.cos(wd), Math.sin(wd)], uFoamStretch: Math.min(Math.max((S.wind - 10) / 8, 0), 1), uDebug: 0,
@@ -302,9 +302,10 @@ export class App {
     const backlit = night ? 0 : smoothstep(0.55, 0.95, (M.fwd[0] * sun[0] + M.fwd[2] * sun[2]) / fh / (Math.hypot(sun[0], sun[2]) || 1)) * (1 - smoothstep(12, 35, W.time.sunElev)) * (1 - L.clouds * 0.8);
     P.section('post');
     this.post.run(this.hdr, dt, {
-      time: t, bloom: 0.015, exposureBias: Number(params.get('ev') || 0) - 1.2 * L.dark * L.dark,
-      skyU, cloudShadow: this.clouds.shadow, incident: 0.75 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : 0.1 + 0.25 * smoothstep(0.6, 0.95, L.clouds) * (night ? 0 : 1), night: night ? 1 : 0,
-      look: params.has('look') ? params.get('look').split(',').map(Number) : undefined,
+      time: t, bloom: 0.015, // a camera's matrix meter lifts a frame dominated by a dark sea under a high sun
+      exposureBias: Number(params.get('ev') || 0) - 1.2 * L.dark * L.dark + 0.4 * (1 - smoothstep(0.2, 0.4, L.clouds)) * smoothstep(35, 50, W.time.sunElev),
+      skyU, cloudShadow: this.clouds.shadow, incident: 0.5 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : 0.1 + 0.25 * smoothstep(0.6, 0.95, L.clouds) * (night ? 0 : 1), night: night ? 1 : 0,
+      look: params.has('look') ? params.get('look').split(',').map(Number) : night ? [1.35, 0.4, 1.0, 0.004] : L.clouds > 0.8 ? [1.32, 0.4, 0.97, 0.0] : undefined,
     });
     P.end();
     this.stats = stats;

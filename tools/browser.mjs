@@ -38,7 +38,7 @@ export async function openApp(browser, url, { width, height }) {
   await page.setViewport({ width, height, deviceScaleFactor: 1 });
   page.on('console', (m) => { if (m.type() === 'error' || m.type() === 'warning') console.log('[page]', m.text()); });
   page.on('pageerror', (e) => console.log('[pageerror]', e.message));
-  await page.goto(url, { waitUntil: 'load' });
+  await page.goto(url, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => window.app || document.querySelector('.err'), { timeout: 60000 });
   const err = await page.evaluate(() => document.querySelector('.err')?.textContent);
   if (err) throw new Error(err);

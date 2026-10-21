@@ -154,7 +154,7 @@ void main() {
     // waves break on the crests of the energetic (dominant) waves: whitecaps cluster there
     float crest = smoothstep(-0.2 * uHs, 0.3 * uHs, vDisp);
     foamRaw *= mix(0.65, 1.3, crest);
-    activeRaw = textureGrad(uActive, u1, dFdx(u1) * 2.0, dFdy(u1) * 2.0).r * 1.3;
+    activeRaw = textureGrad(uActive, smoothUv(u1, uSize[1] / uTexel[1]), dFdx(u1) * 0.7, dFdy(u1) * 0.7).r * 1.3;
     activeRaw *= mix(0.6, 1.35, crest);
     // bubble plume: the same foam fields blurred over a few metres (bubbles spread and sink)
     vec4 b1 = texture(uDisp[1], u1, 1.2);
@@ -202,7 +202,7 @@ void main() {
   R.y = abs(R.y) * mix(1.0, 0.15, below);
   // extended sources (sky, clouds) are blurred by the full capillary roughness; only the
   // sun's tiny disk is allowed to resolve into individual sparkles near the camera
-  float rough = sqrt(sigmaSq.x + sigmaSq.y + uUnresolved * 0.65 * (1.0 - smoothstep(4.0, 400.0, dist)));
+  float rough = sqrt(sigmaSq.x + sigmaSq.y + uUnresolved * 0.25 * (1.0 - smoothstep(4.0, 400.0, dist)));
   // mip from the BRDF width and from the spread of reflected directions within the pixel
   float dR = length(fwidth(R));
   float envLod = clamp(max(log2(rough * 96.0), log2(dR * 256.0 / 3.14159) + 0.5), 0.0, 7.0);
@@ -235,14 +235,22 @@ void main() {
   {
     vec3 Hs = normalize(L + V);
     float fH = 0.02 + 0.98 * pow(max(1.0 - dot(V, Hs), 0.0), 5.0);
+    // (glinting capillary facets of a few cm2)
     float lam = dot(sun, vec3(0.2126, 0.7152, 0.0722)) / max(dot(uSunE * sunVis, vec3(0.2126, 0.7152, 0.0722)), 1e-9)
-              * 6.8e-5 / fH * (footA / 1e-4);
-    if (lam > 1e-7 && lam < 12.0) {
+              * 6.8e-5 / fH * (footA / 3e-4);
+    if (lam > 1e-7 && lam < 400.0) {
       vec2 cell = floor(vXZ / sqrt(footA));
       float u = fract(sin(dot(vec3(cell, floor(uTime * 30.0)), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
-      // Poisson sample by inversion
-      float pk = exp(-lam), cdf = pk, k = 0.0;
-      for (int i = 0; i < 24; i++) { if (u <= cdf) break; k += 1.0; pk *= lam / k; cdf += pk; }
+      float k = 0.0;
+      if (lam < 12.0) {
+        // Poisson sample by inversion
+        float pk = exp(-lam), cdf = pk;
+        for (int i = 0; i < 24; i++) { if (u <= cdf) break; k += 1.0; pk *= lam / k; cdf += pk; }
+      } else {
+        // shot noise: Gaussian approximation
+        float u2 = fract(u * 113.37 + 0.71);
+        k = max(lam + sqrt(lam) * sqrt(-2.0 * log(max(u, 1e-6))) * cos(6.2831853 * u2), 0.0);
+      }
       sun *= k / lam;
     }
   }
@@ -253,13 +261,15 @@ void main() {
 
   // crest subsurface scattering (light transmitted through thin backlit crests)
   float H = max(vDisp + 0.15 * uHs, 0.0) / max(uHs, 0.3);
-  float back = pow(max(dot(L, -V), 0.0), 4.0) * pow(max(0.5 - 0.5 * dot(L, N), 0.0), 3.0);
+  // only thin, steep crests near enough to resolve transmit light
+  float back = pow(max(dot(L, -V), 0.0), 4.0) * pow(max(0.5 - 0.5 * dot(L, N), 0.0), 3.0)
+             * (1.0 - smoothstep(20.0, 200.0, dist)) * smoothstep(0.15, 0.35, length(s));
   float side = pow(nv, 2.0) * 0.18;
   vec3 sss = uSSS * (1.0 - F) * (H * back * 3.0 * uSunE * sunVis + side * (uSkyE + uSunE * sunVis * max(L.y, 0.0) * 0.3));
 
   // submerged bubbles backscatter strongly: the water around and beneath whitecaps turns pale aquamarine
   float pl = (1.0 - exp(-plume * uFoamAmount * 1.8)) * (1.0 - smoothstep(150.0, 900.0, dist) * 0.6);
-  body += (1.0 - F) * pl * vec3(0.02, 0.075, 0.07) * Ed / M_PI;
+  body += (1.0 - F) * pl * vec3(0.03, 0.05, 0.042) * Ed / M_PI;
   vec3 col = refl * uDbgMask.x + sun * uDbgMask.y + (body + sss) * uDbgMask.z;
   col += (1.0 - F) * uRain * 0.035 * smoothstep(3.0, 40.0, dist) * (uSkyE + uSunE * sunVis * max(L.y, 0.0)) / M_PI;
 
@@ -276,7 +286,7 @@ void main() {
     vec3 Ein = uSunE * sunVis * wrapL + uSkyE + uFlash;
     // bubble foam scatters like a diffuse white layer (albedo ~0.6-0.85); only its thinnest
     // parts let a little of the blue-green water show through
-    float albedo = mix(0.6, 0.86, thick);
+    float albedo = mix(0.45, 0.86, thick);
     vec3 tint = mix(vec3(0.82, 0.93, 0.95), vec3(1.0), thick);
     vec3 foamCol = albedo * tint * Ein / M_PI;
     col = mix(col, foamCol, foam);

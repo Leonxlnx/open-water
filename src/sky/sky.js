@@ -43,9 +43,14 @@ void main() {
   }
   if (uCloudsOn > 0.5) {
     // tent-filtered upsample of the low-resolution cloud buffer: removes residual ray-jitter speckle
-    vec2 ct = 0.6 / vec2(textureSize(uClouds, 0));
-    vec4 cl = (texture(uClouds, vUv + vec2(-ct.x, -ct.y)) + texture(uClouds, vUv + vec2(ct.x, -ct.y))
-             + texture(uClouds, vUv + vec2(-ct.x, ct.y)) + texture(uClouds, vUv + vec2(ct.x, ct.y))) * 0.25;
+    // (edge-aware: taps across a cloud edge, i.e. a different transmittance, get little weight)
+    vec2 cts = vec2(textureSize(uClouds, 0));
+    vec2 ct = (cts.x < float(textureSize(uSkyView, 0).x) * 4.0 && cts.x * 1.5 < 1.0 / max(fwidth(vUv.x), 1e-6) ? 0.6 : 0.0) / cts;
+    vec4 c0 = texture(uClouds, vUv);
+    vec4 t0 = texture(uClouds, vUv + vec2(-ct.x, -ct.y)), t1 = texture(uClouds, vUv + vec2(ct.x, -ct.y));
+    vec4 t2 = texture(uClouds, vUv + vec2(-ct.x, ct.y)), t3 = texture(uClouds, vUv + vec2(ct.x, ct.y));
+    float w0 = exp(-abs(t0.a - c0.a) * 8.0), w1 = exp(-abs(t1.a - c0.a) * 8.0), w2 = exp(-abs(t2.a - c0.a) * 8.0), w3 = exp(-abs(t3.a - c0.a) * 8.0);
+    vec4 cl = (t0 * w0 + t1 * w1 + t2 * w2 + t3 * w3) / (w0 + w1 + w2 + w3);
     vec3 sunPart = col - skyRadiance(d);
     col = skyRadiance(d) * cl.a + sunPart * cl.a * cl.a * cl.a + cl.rgb;
   }

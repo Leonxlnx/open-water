@@ -416,7 +416,7 @@ vec3 shafts(vec3 ro, vec3 dir, float dist) {
   float wsum = 0.0;
   for (int i = 0; i < N; i++) {
     // denser samples near the camera (quadratic), jittered per pixel
-    float f = (float(i) + fract(uShaft.w + 52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))) / float(N);
+    float f = (float(i) + fract(uShaft.w + fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453))) / float(N);
     float t = tMax * f * f;
     vec3 p = ro + dir * t;
     vec2 xz0 = p.xz - uSunDir.xz * (max(p.y, 0.0) / uSunDir.y);
@@ -487,6 +487,10 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
   float T = exp(-tau);
   // the storm's rain curtains stand in the storm's shadow: no direct sun, darker diffuse light
   float sf = clamp(stormFrac, 0.0, 1.0);
-  return mix(mix(fogRadiance(dir, uHazeSun), fogRadiance(dir, 0.0) * uFogStorm.y, sf), col, T);
+  float behind = uFogFront.w > 0.0 ? smoothstep(-0.2, 0.3, -dot(normalize(uSunDir.xz + 1e-5), uFogFront.xy)) : 0.0;
+  // (sunlit rain is a neutral grey-white: large drops scatter all wavelengths alike)
+  vec3 lit = vec3(dot(fogRadiance(dir, 0.6), vec3(0.2126, 0.7152, 0.0722))) * vec3(0.95, 0.98, 1.03) * 0.55;
+  vec3 curtain = mix(fogRadiance(dir, 0.0) * uFogStorm.y, lit, behind);
+  return mix(mix(fogRadiance(dir, uHazeSun), curtain, sf), col, T);
 }
 `;

@@ -210,8 +210,11 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   topSt = max(topSt, step(0.86, hf) * dark);
   // cumulus tops dome over the core of the coverage cell instead of a flat slab
   float tf = mix(topCu * mix(0.35, 1.0, smoothstep(0.0, 0.85, c)), topSt, dark);
-  float hg = smoothstep(baseFrac, baseFrac + mix(0.07, 0.05, dark), hf) * (1.0 - smoothstep(tf * 0.55, tf, hf));
+  // per-cloud base height (flat bases that differ from cloud to cloud)
+  baseFrac += (wm.g - 0.5) * 0.05 * (1.0 - dark);
+  float hg = smoothstep(baseFrac, baseFrac + mix(0.015, 0.05, dark), hf) * (1.0 - smoothstep(tf * 0.55, tf, hf));
   float shape = remapc(n.r, wf - 1.0, 1.0, 0.0, 1.0);
+  if (R.w > 0.6 && hf < 0.8) shape = max(shape, 0.35 * smoothstep(0.6, 0.9, R.w));
   float d = shape * hg;
   // coverage erodes with height (Schneider 2017): the cloud narrows upward into turrets
   d = remapc(d, 1.0 - c * mix(1.0, 0.55, hf * (1.0 - dark)), 1.0, 0.0, 1.0) * c;
@@ -220,9 +223,14 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     vec3 dp = (p + uWindOffset * vec3(1.15, 1.0, 1.15)) / 420.0;
     vec3 dn = textureLod(uDetail, dp, lodFor(420.0 / 32.0)).rgb;
     float df = dn.r * 0.625 + dn.g * 0.25 + dn.b * 0.125;
+    // a finer octave (~140 m) for cauliflower lobes
+    vec3 dn2 = textureLod(uDetail, dp * 3.0 + 0.41, lodFor(140.0 / 32.0)).rgb;
+    df = mix(df, dn2.r * 0.625 + dn2.g * 0.25 + dn2.b * 0.125, 0.3);
     // wispy at the base, billowy towards the tops
-    float dm = mix(df, 1.0 - df, clamp(hf * 5.0, 0.0, 1.0));
-    d = remapc(d, dm * mix(0.55, 0.45, dark), 1.0, 0.0, 1.0);
+    // fair-weather cumulus are billowy everywhere; decks wispy at the base
+    float dm = mix(1.0 - df, mix(df, 1.0 - df, clamp(hf * 5.0, 0.0, 1.0)), dark);
+    float thr = dm * mix(0.55, 0.45, dark) * mix(0.35, 1.0, smoothstep(0.02, 0.12, hf));
+    d = clamp(remapc(d, thr, thr + (1.0 - thr) * 0.5, 0.0, 1.0), 0.0, 1.0);
   }
   return max(max(d, 0.0) * R.z, shelf);
 }
@@ -291,9 +299,9 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
   float wsum = 0.0;
   float cosT = dot(rd, uSunDir);
   // multiple-scattering octaves (Wrenninge 2013): energy a^i, extinction b^i, eccentricity c^i
-  float ph0 = mix(hg(cosT, 0.82), hg(cosT, -0.3), 0.25);
-  float ph1 = mix(hg(cosT, 0.41), hg(cosT, -0.15), 0.25);
-  float ph2 = mix(hg(cosT, 0.2), hg(cosT, -0.07), 0.25);
+  float ph0 = mix(hg(cosT, 0.82), hg(cosT, -0.3), 0.35);
+  float ph1 = mix(hg(cosT, 0.41), hg(cosT, -0.15), 0.35);
+  float ph2 = mix(hg(cosT, 0.2), hg(cosT, -0.07), 0.35);
   bool inside = false;
   bool allowBack = true;
   int miss = 0;
@@ -308,10 +316,10 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       if (cloudDensityR(p, h, false, R, base, top) > 0.0) {
         inside = true; miss = 0;
         if (allowBack) { t = max(t - coarse, t0); allowBack = false; continue; }
-      } else { t += max(coarse, t * 0.018); continue; }
+      } else { t += clamp(t * 0.018, coarse, max(coarse, 400.0)); continue; }
     }
     // distance LOD: erosion detail and long light paths are sub-pixel far away
-    bool nearField = t < 14000.0;
+    bool nearField = t * uPixelAngle < 25.0;
     float sigma = cloudDensityR(p, h, nearField, R, base, top);
     float stepLen = fine * (1.0 + t * 0.00004);
     if (sigma > 0.0) {
@@ -322,7 +330,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // far away the light path must still span the cloud (few long steps), or shading follows noise
       // the march spans the same ~2.6 km whatever the step count (env, far field, quality tier),
       // so coarse passes don't see thick decks as thin and sunlit inside
-      int nL = nearField ? lightSteps : 3;
+      int nL = (nearField || R.y > 0.5) ? lightSteps : 4;
       float lgrow = 2.0;
       float ls = 2600.0 / (exp2(float(nL)) - 1.0);
       vec3 lp = p;
@@ -370,12 +378,13 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // it dominates their shaded interiors (grey-white), not the blue skylight
       // (a deck is a slab lit from above: E mu0 T_d / pi; an isolated cumulus is lit on its sunward side)
       float slab = smoothstep(0.75, 0.95, R.x);
-      float diffuse = diffSun * mix(0.3, max(uSunDir.y, 0.0) / 3.14159, slab) * (1.0 - exp(-0.15 * tau));
+      // isolated cumulus: bright when seen from the sunlit side, dark bodies with bright rims backlit
+      float diffuse = diffSun * mix(mix(0.12, 0.3, 1.0 - smoothstep(-0.6, 0.3, cosT)), max(uSunDir.y, 0.0) / 3.14159, slab) * (1.0 - exp(-0.15 * tau));
       // the diffused light carries the colour of the whole illumination at the cloud top: sun + skylight
       // diffused deck light mixes sun and blue skylight: neutral-cool (~6500 K) at the sun's luminance
       vec3 diffCol = dot(sunE, vec3(0.2126, 0.7152, 0.0722)) * vec3(0.93, 1.0, 1.09);
       vec3 sun = sunE * ms * mix(1.0, powder, 0.55 * (1.0 - max(cosT, 0.0))) + diffCol * diffuse;
-      vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 2.0;
+      vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 0.6;
       // the face toward the camera reflects the sky/sea light behind the camera where the column
       // above no longer lets skylight through
       amb += ambFace * (1.0 - diffUp) * smoothstep(0.5, 0.9, R.x);
@@ -446,6 +455,13 @@ void main() {
   if (c.a < 0.999) {
     vec3 aL, aT;
     aerial(rd, md * 0.001, aL, aT);
+    // the aerial table holds horizontal sea-level paths; a raised cloud is seen through less haze:
+    // scale the optical depth by the slant-path factor of the boundary layer (H ~ 2 km)
+    float sEl = max(rd.y, 0.0) * md * 0.001 / 2.0;
+    float fsl = sEl > 1e-3 ? (1.0 - exp(-sEl)) / sEl : 1.0;
+    vec3 aT2 = pow(max(aT, vec3(1e-4)), vec3(fsl));
+    aL *= (1.0 - aT2) / max(1.0 - aT, vec3(1e-4));
+    aT = aT2;
     aL *= stormHazeLit(uCamPos, rd, md);
     c.rgb = c.rgb * aT + aL * (1.0 - c.a) * 0.9;
   }
@@ -482,6 +498,13 @@ void main() {
   if (c.a < 0.999) {
     vec3 aL, aT;
     aerial(rd, md * 0.001, aL, aT);
+    // the aerial table holds horizontal sea-level paths; a raised cloud is seen through less haze:
+    // scale the optical depth by the slant-path factor of the boundary layer (H ~ 2 km)
+    float sEl = max(rd.y, 0.0) * md * 0.001 / 2.0;
+    float fsl = sEl > 1e-3 ? (1.0 - exp(-sEl)) / sEl : 1.0;
+    vec3 aT2 = pow(max(aT, vec3(1e-4)), vec3(fsl));
+    aL *= (1.0 - aT2) / max(1.0 - aT, vec3(1e-4));
+    aT = aT2;
     aL *= stormHazeLit(uCamPos, rd, md);
     c.rgb = c.rgb * aT + aL * (1.0 - c.a) * 0.9;
   }

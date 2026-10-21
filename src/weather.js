@@ -91,11 +91,14 @@ export class Weather {
     };
   }
 
+  // choppiness for a wind sea: young, steep seas in strong wind
+  choppyFor(U) { return table(U, [3, 8.5, 15, 21, 25], [0.75, 0.9, 1.15, 1.35, 1.45]); }
+
   foam() {
     const U = this.state.wind;
     // z: breaking threshold in standard deviations of the Jacobian. Calibrated so visible coverage
     // follows Monahan & O'Muircheartaigh (1980), stage A + B, within ~10% from 8 to 28 m/s.
-    const z = table(U, [3, 5, 8.5, 11, 15, 21, 28], [3.2, 2.47, 1.94, 1.74, 1.69, 1.6, 1.1]);
+    const z = table(U, [3, 5, 8.5, 11, 15, 21, 28], [3.2, 2.47, 1.92, 1.76, 1.77, 1.76, 1.4]);
     const gain = 1.2;
     // residual foam lingers longer in strong wind (e-folding ~8 s from a near gale on)
     const decay = lerp(0.8, 0.12, smoothstep(5, 18, U));

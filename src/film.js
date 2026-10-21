@@ -8,8 +8,8 @@ const smooth = (t) => t * t * (3 - 2 * t);
 const ACT1 = {
   start: 0, end: 17,
   weather: [
-    [0, { wind: 3.0, windDir: 20, clouds: 0.22, cloudDark: 0, cloudBase: 1500, rain: 0, mist: 0, haze: 0.9, choppy: 0.75, waveScale: 1, swellHs: 1.0, swellDir: 40, sunElev: 5, sunAz: 205, lightning: 0, fetch: 400, front: 0 }],
-    [17, { wind: 6.0, clouds: 0.3, haze: 1.0, choppy: 0.85, swellHs: 1.15, sunElev: 4.5, fetch: 700 }],
+    [0, { wind: 3.0, windDir: 20, clouds: 0.22, cloudDark: 0, cloudBase: 1500, rain: 0, mist: 0, haze: 1.5, choppy: 0.75, waveScale: 1, swellHs: 1.0, swellDir: 40, sunElev: 5, sunAz: 205, lightning: 0, fetch: 400, front: 0 }],
+    [17, { wind: 6.0, clouds: 0.3, haze: 1.6, choppy: 0.85, swellHs: 1.15, sunElev: 4.5, fetch: 700 }],
   ],
   camera: [
     [0, { yaw: 197, pitch: 1.4, eye: 2.4, fov: 40 }],
