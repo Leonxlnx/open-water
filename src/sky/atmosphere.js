@@ -427,7 +427,10 @@ vec3 shafts(vec3 ro, vec3 dir, float dist) {
     float t = tMax * f * f;
     vec3 p = ro + dir * t;
     vec2 xz0 = p.xz - uSunDir.xz * (max(p.y, 0.0) / uSunDir.y);
-    float v = texture(uShaftShadow, (xz0 - uShaftRect.xy) * uShaftRect.zw).r;
+    vec2 suv = (xz0 - uShaftRect.xy) * uShaftRect.zw;
+    // beyond the shadow map: the mean visibility (no clamped-edge streaks)
+    float inR = smoothstep(0.0, 0.04, min(min(suv.x, suv.y), min(1.0 - suv.x, 1.0 - suv.y)));
+    float v = mix(uHazeSun, texture(uShaftShadow, suv).r, inR);
     float w = 2.0 * f;          // dt for the quadratic distribution
     vis += v * w;
     wsum += w;

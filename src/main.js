@@ -148,6 +148,7 @@ export class App {
       this.ocean.drift = [Math.cos(wdr) * 0.035 * S.wind, Math.sin(wdr) * 0.035 * S.wind];
       this.ocean.setSpectrum(W.spectrum());
       this.ocean.update(this.time, dt, W.foam());
+      if (i % 30 === 29) this.gl.finish();
     }
   }
 
@@ -243,19 +244,25 @@ export class App {
     this.windOffset[0] += Math.cos(wd0) * aloft * dt;
     this.windOffset[2] += Math.sin(wd0) * aloft * dt;
     this.windOffset[1] += dt * (3 + S.wind * 0.6);
+    // the film's squall front sweeps in time-lapse (km per second): a long cloud history lags behind it
+    // as echo bands, so the history shortens with the front's motion per frame
+    const frontStep = fOn && this.prevFrontDist !== undefined ? Math.abs(S.frontDist - this.prevFrontDist) : 0;
+    this.prevFrontDist = S.frontDist;
+    const frontBlend = 0.45 * smoothstep(3, 40, frontStep);
     const cloudU = {
       windOffset: this.windOffset, coverage: S.clouds, base: S.cloudBase,
       top: S.cloudBase + 1800 + S.cloudDark * 5200, density: 0.11 - S.cloudDark * 0.05, dark: S.cloudDark,
       front: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0],
       stormA: [S.sClouds, S.sDark, 0.11 - S.sDark * 0.05, S.sBase], stormTop: S.sBase + 2500 + S.sDark * 8000, // cumulonimbus tops ~9-10 km
-      flash: [lp[0], lp[1], lp[2], flash * (night ? 30 : 0.025)], flashColor: [0.75, 0.8, 1.0], blend: QUALITY.blend + (0.85 - QUALITY.blend) * smoothstep(0.02, 0.3, flash), steps: QUALITY.steps,
+      flash: [lp[0], lp[1], lp[2], flash * (night ? 30 : 0.025)], flashColor: [0.75, 0.8, 1.0], blend: Math.max(QUALITY.blend + (0.85 - QUALITY.blend) * smoothstep(0.02, 0.3, flash), frontBlend), steps: QUALITY.steps,
       lightSteps: QUALITY.lightSteps, lightDetail: QUALITY.lightDetail, check: QUALITY.check, upSteps: QUALITY.upSteps,
       shapeLod: params.has('shapelod') ? Number(params.get('shapelod')) : -1,
     };
     P.section('clouds');
     // a flash changes the cloud light within a frame, so most of the history is dropped; the offline
     // tiers then average several independently jittered passes instead of showing one noisy sample
-    const cloudPasses = flash > 0.02 && !QUALITY.check ? 4 : 1;
+    // (two: a heavier frame risks GPU driver timeouts on integrated GPUs)
+    const cloudPasses = flash > 0.02 && !QUALITY.check ? 2 : 1;
     for (let k = 0; k < cloudPasses; k++) {
       const b = cloudU.blend;
       this.clouds.render(skyU, { ...cloudU, blend: b / (1 + k * b) }, { pos: this.cam.pos, inv: M.inv, vp: M.vp, fov: this.cam.fov });
@@ -358,7 +365,8 @@ export class App {
       // the new shot's wind has been blowing for a while: its foam history first (25 s, waves only)
       this.filmFrame(t0 - 28, dt, t0);
       this.warmSea(25, dt);
-      for (let w = t0 - 3; w < t0 - dt / 2; w += dt) this.filmFrame(w, dt, t0);
+      // (the GPU drains after every frame: a long queue of heavy frames trips the driver's watchdog)
+      for (let w = t0 - 3; w < t0 - dt / 2; w += dt) { this.filmFrame(w, dt, t0); this.gl.finish(); }
     }
     this.filmAct = act;
     this.fade = film.fadeAt(tl);

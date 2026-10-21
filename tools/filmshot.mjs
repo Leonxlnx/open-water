@@ -9,7 +9,7 @@ const browser = await launch({ width, height });
 try {
   for (const T of times.split(',').map(Number)) {
     const page = await openApp(browser, `http://localhost:5173/?render&q=${q}&scale=1&${extra}`, { width, height });
-    const data = await page.evaluate((T) => {
+    const data = await page.evaluate(async (T) => {
       const dt = 1 / 30;
       // the sea under the frame's weather first: in the film, foam has built up since the act began
       // (as in the film: a cut to a new act starts with 25 s of that act's sea, see App.filmFrame)
@@ -17,7 +17,8 @@ try {
       app.filmFrame(tw, dt);
       app.time = tw - W;
       app.warmSea(W);
-      for (let t = Math.max(T - 3, -2); t < T - dt / 2; t += dt) app.filmFrame(t, dt);
+      // let the GPU drain between frames (a long queue of heavy frames trips the GPU watchdog)
+      for (let t = Math.max(T - 3, -2); t < T - dt / 2; t += dt) { app.filmFrame(t, dt); app.gl.finish(); await new Promise((r) => setTimeout(r, 0)); }
       const t0 = performance.now();
       app.filmFrame(T, dt);
       app.gl.finish();

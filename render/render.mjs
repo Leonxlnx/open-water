@@ -65,7 +65,7 @@ try {
   // warm-up: settle foam history, cloud accumulation and camera filters before the first frame
   await page.evaluate((from, warm, fps) => {
     const dt = 1 / fps;
-    for (let t = from - warm; t < from - dt / 2; t += dt) app.filmFrame(t, dt);
+    for (let t = from - warm; t < from - dt / 2; t += dt) { app.filmFrame(t, dt); app.gl.finish(); }
   }, from, warm, fps);
 
   const total = Math.round((to - from) * fps);

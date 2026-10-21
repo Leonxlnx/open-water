@@ -217,7 +217,7 @@ void main() {
 
   // sun visibility through clouds
   vec2 suv = (P.xz - uShaftRect.xy) * uShaftRect.zw;
-  float sunVis = texture(uShaftShadow, suv).r;
+  float sunVis = mix(uHazeSun, texture(uShaftShadow, suv).r, smoothstep(0.0, 0.04, min(min(suv.x, suv.y), min(1.0 - suv.x, 1.0 - suv.y))));
 
   // reflection of the sky / clouds, blurred by the unresolved roughness
   vec3 R = reflect(-V, N);
