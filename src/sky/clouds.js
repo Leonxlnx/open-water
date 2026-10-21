@@ -176,8 +176,13 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   // an overcast deck is closed: no column-shaped gaps from the 2D coverage map
   c = max(c, smoothstep(0.82, 0.96, cov));
   if (c <= 0.001) return shelf;
-  vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / 3000.0;
-  vec4 n = textureLod(uShape, sp, uShapeLod < 0.0 ? lodFor(3000.0 / 128.0) : uShapeLod);
+  // shape noise: ~350 m billows for cumulus, ~750 m cells for storm decks (blended in between)
+  vec3 wo = vec3(uWindOffset.x, 0.0, uWindOffset.z);
+  vec4 n = textureLod(uShape, (p + wo) / 3000.0, uShapeLod < 0.0 ? lodFor(3000.0 / 128.0) : uShapeLod);
+  if (dark < 0.85) {
+    vec4 nc = textureLod(uShape, (p + wo) / 1400.0 + 0.37, uShapeLod < 0.0 ? lodFor(1400.0 / 128.0) : uShapeLod);
+    n = mix(nc, n, smoothstep(0.15, 0.85, dark));
+  }
   float wf = n.g * 0.625 + n.b * 0.25 + n.a * 0.125;
   // vertical profile. Fair weather: cumulus towers with type-dependent tops.
   // Storm: a layer deck whose base undulates (rolls, scud) and whose thickness varies 2-3x,
@@ -188,11 +193,13 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   float topSt = mix(0.18, 1.0, clamp(wm.b * 0.9 + n.r * 0.7 - 0.3 + cells * 0.6, 0.0, 1.0));
   // the anvil itself: a flat, smooth spreading layer near the top of the storm
   topSt = max(topSt, step(0.86, hf) * dark);
-  float tf = mix(topCu, topSt, dark);
+  // cumulus tops dome over the core of the coverage cell instead of a flat slab
+  float tf = mix(topCu * mix(0.35, 1.0, smoothstep(0.0, 0.85, c)), topSt, dark);
   float hg = smoothstep(baseFrac, baseFrac + mix(0.07, 0.05, dark), hf) * (1.0 - smoothstep(tf * 0.55, tf, hf));
   float shape = remapc(n.r, wf - 1.0, 1.0, 0.0, 1.0);
   float d = shape * hg;
-  d = remapc(d, 1.0 - c, 1.0, 0.0, 1.0) * c;
+  // coverage erodes with height (Schneider 2017): the cloud narrows upward into turrets
+  d = remapc(d, 1.0 - c * mix(1.0, 0.55, hf * (1.0 - dark)), 1.0, 0.0, 1.0) * c;
   if (d <= 0.0) return shelf;
   if (detail) {
     vec3 dp = (p + uWindOffset * vec3(1.15, 1.0, 1.15)) / 420.0;
@@ -200,7 +207,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     float df = dn.r * 0.625 + dn.g * 0.25 + dn.b * 0.125;
     // wispy at the base, billowy towards the tops
     float dm = mix(df, 1.0 - df, clamp(hf * 5.0, 0.0, 1.0));
-    d = remapc(d, dm * 0.45, 1.0, 0.0, 1.0);
+    d = remapc(d, dm * mix(0.55, 0.45, dark), 1.0, 0.0, 1.0);
   }
   return max(max(d, 0.0) * R.z, shelf);
 }
