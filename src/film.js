@@ -8,8 +8,8 @@ const smooth = (t) => t * t * (3 - 2 * t);
 const ACT1 = {
   start: 0, end: 17,
   weather: [
-    [0, { wind: 3.0, windDir: 20, clouds: 0.22, cloudDark: 0, cloudBase: 1500, rain: 0, mist: 0, haze: 1.4, choppy: 0.75, waveScale: 1, swellHs: 1.0, swellDir: 40, sunElev: 5, sunAz: 205, lightning: 0, fetch: 400, front: 0 }],
-    [17, { wind: 6.0, clouds: 0.3, haze: 1.5, choppy: 0.85, swellHs: 1.15, sunElev: 4.5, fetch: 700 }],
+    [0, { wind: 3.0, windDir: 20, clouds: 0.22, cloudDark: 0, cloudBase: 1500, rain: 0, mist: 0, haze: 0.9, choppy: 0.75, waveScale: 1, swellHs: 1.0, swellDir: 40, sunElev: 5, sunAz: 205, lightning: 0, fetch: 400, front: 0 }],
+    [17, { wind: 6.0, clouds: 0.3, haze: 1.0, choppy: 0.85, swellHs: 1.15, sunElev: 4.5, fetch: 700 }],
   ],
   camera: [
     [0, { yaw: 197, pitch: 1.4, eye: 2.4, fov: 40 }],
@@ -23,9 +23,9 @@ const ACT2 = {
     [17, { wind: 9, windDir: 230, clouds: 0.2, cloudDark: 0.05, cloudBase: 1300, rain: 0, mist: 0, haze: 2, choppy: 0.9, waveScale: 1, swellHs: 1.4, swellDir: 215, sunElev: 24, sunAz: 180, lightning: 0, fetch: 900,
       front: 1, frontDist: 36000, frontAz: 52, frontWidth: 2600, sClouds: 0.97, sDark: 0.9, sBase: 650, sRain: 0.6, sMist: 0.15 }],
     [26, { wind: 12, frontDist: 21000, haze: 2.4, choppy: 0.95, swellHs: 1.7 }],
-    [33, { wind: 17, frontDist: 2500, haze: 2.8, choppy: 1.0, swellHs: 2.2, fetch: 1500 }],
-    [40, { wind: 22, frontDist: -4000, haze: 3, choppy: 1.05, swellHs: 2.8 }],
-    [48, { wind: 23.5, frontDist: -6000, haze: 3, choppy: 1.05, swellHs: 3.0 }],
+    [33, { wind: 17, frontDist: 2500, haze: 2.8, choppy: 1.12, swellHs: 2.2, fetch: 1500 }],
+    [40, { wind: 22, frontDist: -4000, haze: 3, choppy: 1.25, swellHs: 2.8 }],
+    [48, { wind: 23.5, frontDist: -6000, haze: 3, choppy: 1.25, swellHs: 3.0 }],
   ],
   camera: [
     [17, { yaw: 62, pitch: 3.2, eye: 2.6, fov: 46 }],
@@ -38,7 +38,7 @@ const ACT2 = {
 const ACT3 = {
   start: 48, end: 60,
   weather: [
-    [48, { wind: 5.5, windDir: 230, clouds: 0.2, cloudDark: 0, cloudBase: 1400, rain: 0, mist: 0, haze: 1.6, choppy: 0.8, waveScale: 1, swellHs: 2.4, swellDir: 225, sunElev: -14, sunAz: 30, lightning: 0, fetch: 600,
+    [48, { wind: 5.5, windDir: 230, clouds: 0.2, cloudDark: 0, cloudBase: 1400, rain: 0, mist: 0, haze: 0.45, choppy: 0.8, waveScale: 1, swellHs: 2.4, swellDir: 225, sunElev: -14, sunAz: 30, lightning: 0, fetch: 600,
       front: 1, frontDist: 26000, frontAz: 245, frontWidth: 3000, sClouds: 0.95, sDark: 0.85, sBase: 700, sRain: 0.6, sMist: 0.15 }],
     [60, { wind: 4.5, swellHs: 2.2, frontDist: 27500 }],
   ],

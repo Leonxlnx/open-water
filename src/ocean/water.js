@@ -123,6 +123,8 @@ void main() {
   vec3 uSunE = sunIlluminance();
   vec3 uSkyE = skyIrradiance();
   vec3 P = vWorld;
+  // area of the pixel footprint on the sea (m2)
+  float footA = max(length(cross(dFdx(P), dFdy(P))), 1e-9);
   vec3 toCam = uCamPos - P;
   float dist = length(toCam);
   vec3 V = toCam / dist;
@@ -209,6 +211,24 @@ void main() {
 
   // sun glitter
   vec3 sun = uSunE * sunVis * reflectedSun(L, V, N, Tx, Ty, sigmaSq);
+  // Glints: the expected sun reflection is carried by a few capillary facets (~1 cm2) whose slopes
+  // happen to mirror the sun's disk (6.8e-5 sr) into the eye. With N facets in the pixel footprint,
+  // lambda = E[L] Omega_sun / (F L_sun) N glint on average: near the camera lambda << 1 (sparse,
+  // full-brightness sparkles on dark water), far away it is large (the smooth glitter path).
+  {
+    vec3 Hs = normalize(L + V);
+    float fH = 0.02 + 0.98 * pow(max(1.0 - dot(V, Hs), 0.0), 5.0);
+    float lam = dot(sun, vec3(0.2126, 0.7152, 0.0722)) / max(dot(uSunE * sunVis, vec3(0.2126, 0.7152, 0.0722)), 1e-9)
+              * 6.8e-5 / fH * (footA / 1e-4);
+    if (lam > 1e-7 && lam < 12.0) {
+      vec2 cell = floor(vXZ / sqrt(footA));
+      float u = fract(sin(dot(vec3(cell, floor(uTime * 30.0)), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
+      // Poisson sample by inversion
+      float pk = exp(-lam), cdf = pk, k = 0.0;
+      for (int i = 0; i < 24; i++) { if (u <= cdf) break; k += 1.0; pk *= lam / k; cdf += pk; }
+      sun *= k / lam;
+    }
+  }
 
   // water-leaving radiance (deep, optically infinite water)
   vec3 Ed = uSunE * sunVis * max(L.y, 0.0) + uSkyE + uFlash * 0.3;
@@ -254,7 +274,7 @@ void main() {
   aerial(dir, dist * 0.001, aL, aT);
   col = col * aT + aL;
   // light shafts through cloud gaps in the haze between the camera and this point
-  col = max(col + shafts(uCamPos, -V, dist), col * 0.2);
+  col = withShafts(col, uCamPos, -V, dist);
   // rain / mist fog
   col = applyFog(col, -V, dist);
   oColor = vec4(col, 1.0);

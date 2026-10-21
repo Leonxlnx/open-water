@@ -151,13 +151,19 @@ float shelfDensity(vec3 p, float h) {
   float dl = d + (h - 260.0) * 2.2;
   if (dl < -3400.0 || d > 1600.0) return 0.0;
   float u = clamp((dl + 3400.0) / 5000.0, 0.0, 1.0);
-  float sb = mix(260.0, uStormA.w, smoothstep(0.1, 0.95, u));
+  vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / vec3(2400.0, 700.0, 2400.0);
+  vec4 n = textureLod(uShape, sp, lodFor(2400.0 / 128.0));
+  // ragged, lumpy underside
+  float sb = mix(260.0, uStormA.w, smoothstep(0.1, 0.95, u)) + (n.b - 0.5) * 160.0;
   float st = uStormA.w + 450.0;
   if (h < sb || h > st) return 0.0;
   float tz = (h - sb) / max(st - sb, 1.0);
-  vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / vec3(2400.0, 700.0, 2400.0);
-  vec4 n = textureLod(uShape, sp, lodFor(2400.0 / 128.0));
-  float tiers = 0.62 + 0.38 * sin(h * 0.042 + n.g * 5.0);
+  // turbulent lumps at ~150-300 m on the face
+  vec4 n2 = textureLod(uShape, (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / vec3(700.0, 300.0, 700.0) + 0.31, lodFor(700.0 / 128.0));
+  // laminar rolls parallel to the gust front, varying along it
+  float along = dot(p.xz, vec2(-uFront.y, uFront.x));
+  float tiers = mix(0.45, 1.0, smoothstep(0.3, 0.7, 0.5 + 0.5 * sin(h * 0.042 + n.g * 5.0 + along / 900.0)));
+  tiers *= smoothstep(0.2, 0.55, n.r * 0.55 + n2.r * 0.55);
   float nose = smoothstep(0.0, 0.05 + 0.08 * n.r, u);
   float body = smoothstep(0.0, 0.1, tz) * (1.0 - smoothstep(0.75, 1.0, tz));
   return nose * body * tiers * smoothstep(0.3, 0.62, n.r * 0.75 + 0.4) * uStormA.z * 1.5;
@@ -372,7 +378,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 2.0;
       // the face toward the camera reflects the sky/sea light behind the camera where the column
       // above no longer lets skylight through
-      amb += ambFace * (1.0 - diffUp);
+      amb += ambFace * (1.0 - diffUp) * smoothstep(0.5, 0.9, R.x);
       if (h < base) amb *= 0.5; // scud: self-shadowed fragments read darker than the deck
       vec3 S = (sun + amb) * sigma;
       if (uFlash.w > 0.0) {

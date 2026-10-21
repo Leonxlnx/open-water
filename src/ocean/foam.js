@@ -95,6 +95,8 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   vec4 s = texture(uFoamTex, vec2(p.x / 45.0, p.y / 15.0) + vec2(0.13, 0.5));
   // large-scale structure stretches along the wind as it strengthens (wind rows of foam)
   vec4 big = texture(uFoamTex, vec2(p.x / (37.0 * (1.0 + 1.2 * uFoamStretch)), p.y / 37.0) + vec2(0.61, 0.27));
+  // a crest breaks in segments of a few metres, not along its whole length
+  float seg = texture(uFoamTex, vec2(p.x / 9.0, p.y / 6.0) + vec2(0.43, 0.19)).r;
   // multi-scale threshold: the large component makes patch outlines ragged at metre scale
   // filament-scale threshold: foam structure lives at 0.3-2 m; the 37 m field only modulates
   float T = big.r * 0.18 + a.r * 0.42 + b.r * 0.4;
@@ -109,7 +111,7 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   if (f < 0.003 && lace < 0.003 && act < 0.003) return vec2(0.0);
   // densities in [0, 1): residual (stage B, seconds to tens of seconds) and active breaking (stage A)
   float F = 1.0 - exp(-f * 1.3);
-  float A = 1.0 - exp(-act * 0.8);
+  float A = min((1.0 - exp(-act * 0.8)) * smoothstep(0.3, 0.62, seg) * 1.6, 1.0);
   // coverage = P(pattern < density): foam fills the low values of a pattern field first.
   //  Pa, active froth: metre-scale churn plus the raft network, so the rim of a breaking crest
   //      frays into filaments and specks, and only the core is solid (with holes)

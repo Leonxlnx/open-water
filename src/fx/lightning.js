@@ -97,8 +97,9 @@ export class Lightning {
       // midpoint displacement
       let pts = [a, b];
       const len = Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
-      let rough = len * 0.18;
-      for (let lvl = 0; lvl < 7; lvl++) {
+      // tortuous at every scale (segments of tens of metres turn by ~15-20 degrees)
+      let rough = len * 0.2;
+      for (let lvl = 0; lvl < 8; lvl++) {
         const next = [pts[0]];
         for (let i = 0; i < pts.length - 1; i++) {
           const p = pts[i], q = pts[i + 1];
@@ -106,16 +107,18 @@ export class Lightning {
           next.push(q);
         }
         pts = next;
-        rough *= 0.55;
+        rough *= 0.6;
       }
       for (let i = 0; i < pts.length - 1; i++) {
-        segs.push([...pts[i], intensity, ...pts[i + 1], width]);
+        // branches taper: dimmer and thinner toward their tips; the trunk stays bright
+        const f = depth > 0 ? Math.pow(1 - i / pts.length, 1.4) : 1;
+        segs.push([...pts[i], intensity * f, ...pts[i + 1], width * (0.35 + 0.65 * f)]);
         if (depth < 2 && r() < 0.035 * (1 - i / pts.length) && pts[i][1] > H * 0.15) {
           const p = pts[i];
           const blen = (p[1]) * (0.25 + r() * 0.45);
           const ang = r() * Math.PI * 2;
           const end = [p[0] + Math.cos(ang) * blen * 0.6, p[1] - blen, p[2] + Math.sin(ang) * blen * 0.6];
-          walk(p, end, depth + 1, intensity * 0.35, width * 0.5);
+          walk(p, end, depth + 1, intensity * f * 0.22, width * f * 0.45);
         }
       }
     };

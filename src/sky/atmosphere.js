@@ -3,6 +3,7 @@
 // plus a 2D aerial-perspective LUT specialised for sea-level surface points.
 // Units: kilometres. Radiance is relative to a solar illuminance of 1.
 import { Program, Texture, Target, fullscreen, FULLSCREEN_VS } from '../gl.js';
+const params_mie = Number(new URLSearchParams(globalThis.location?.search || '').get('mie')) || 0;
 
 export const ATMO_GLSL = `
 const float PI = 3.14159265359;
@@ -241,7 +242,8 @@ export class Atmosphere {
 
   mediumUniforms(haze) {
     // haze: multiplier of sea-level aerosol density (marine boundary layer)
-    const mieScat = 0.0036 * haze;
+    // maritime aerosol: ~0.025/km at haze 1 (visibility ~100 km, AOD ~0.03); 'haze' scales it
+    const mieScat = (params_mie || 0.025) * haze;
     const mieExt = mieScat / 0.9; // sea-salt aerosols are bright: single scattering albedo ~0.9
     const R = [5.802e-3, 13.558e-3, 33.1e-3];
     this.extRatio = R.map((r) => (r + mieExt) / (R[1] + mieExt));
@@ -392,6 +394,16 @@ float fogPathLength(vec3 dir, float dist) {
 uniform sampler2D uShaftShadow;
 uniform vec4 uShaftRect;     // shadow map origin xz, 1/size
 uniform vec4 uShaft;         // x: haze scattering (1/m), y: layer top (m), z: strength, w: jitter
+vec3 shafts(vec3 ro, vec3 dir, float dist);
+// Add crepuscular rays to a colour: lit gaps add sunlight; shadowed haze darkens what is there
+// (hue-preserving: the removed in-scatter is the LUT's, whatever its colour), never below 20%.
+vec3 withShafts(vec3 col, vec3 ro, vec3 dir, float dist) {
+  vec3 sh = shafts(ro, dir, dist);
+  float ds = dot(sh, vec3(0.2126, 0.7152, 0.0722));
+  if (ds >= 0.0) return col + sh;
+  float y = max(dot(col, vec3(0.2126, 0.7152, 0.0722)), 1e-7);
+  return col * max(1.0 + ds / y, 0.2);
+}
 vec3 shafts(vec3 ro, vec3 dir, float dist) {
   if (uShaft.z <= 0.0 || uSunDir.y < 0.02) return vec3(0.0);
   float top = uShaft.y;
@@ -399,7 +411,7 @@ vec3 shafts(vec3 ro, vec3 dir, float dist) {
   if (dir.y > 0.0) tMax = min(tMax, (top - ro.y) / max(dir.y, 1e-3));
   tMax = min(tMax, 12000.0);
   if (tMax <= 0.0) return vec3(0.0);
-  const int N = 14;
+  const int N = 28;
   float vis = 0.0;
   float wsum = 0.0;
   for (int i = 0; i < N; i++) {
@@ -469,7 +481,8 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     // fine streaks only up close; far curtains read as soft shafts (the fine detail is sub-pixel there)
     float near = 1.0 - smoothstep(3000.0, 12000.0, max(tc, 0.0));
     float streak = fogNoise(along / 900.0 + hc / 1400.0) * 0.6 + near * (fogNoise(along / 260.0 + hc / 500.0 + 3.0) * 0.28 + fogNoise(along / 85.0 + hc / 180.0 + 9.0) * 0.12) + (1.0 - near) * 0.2;
-    stormFrac *= 0.72 + 0.5 * streak;
+    // (far curtains: the streaks merge; only the broad shafts remain)
+    stormFrac *= mix(0.88 + 0.2 * streak, 0.72 + 0.5 * streak, near);
   }
   float T = exp(-tau);
   // the storm's rain curtains stand in the storm's shadow: no direct sun, darker diffuse light

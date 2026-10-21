@@ -239,7 +239,7 @@ export class App {
     // crepuscular rays: haze scattering below the cloud base, shadowed by the cloud-shadow map
     Object.assign(skyU, {
       uShaftShadow: this.clouds.shadow, uShaftRect: this.clouds.shadowRect,
-      uShaft: [this.atmo.uniforms.uMie[0] * 1e-3 * 1.6, Math.min(S.cloudBase, fOn ? S.sBase : 1e9), S.clouds > 0.05 ? 1.0 : 0.0, (this.time * 0.618) % 1],
+      uShaft: [this.atmo.uniforms.uMie[0] * 1e-3, Math.min(S.cloudBase, fOn ? S.sBase : 1e9), S.clouds > 0.05 ? 1.0 : 0.0, (this.time * 0.618) % 1],
     });
     this.sky.renderEnv({ ...skyU, ...fogU, uCloudsEnv: this.clouds.env, uCloudsOn: 1, uSunVis: 1 });
 

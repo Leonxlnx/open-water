@@ -18,7 +18,7 @@ export const PRESETS = {
     clouds: 0.92, cloudDark: 0.45, cloudBase: 900, rain: 0.6, lightning: 0.0, haze: 4, mist: 0.35,
   },
   storm: {
-    wind: 21, windDir: 30, fetch: 1500, waveScale: 1, choppy: 1.0,
+    wind: 21, windDir: 30, fetch: 1500, waveScale: 1, choppy: 1.25,
     swellHs: 2.6, swellT: 13, swellDir: 55, swellSpread: 12,
     clouds: 0.95, cloudDark: 0.85, cloudBase: 650, rain: 1.0, lightning: 0.7, haze: 5, mist: 0.25,
   },
@@ -95,7 +95,7 @@ export class Weather {
     const U = this.state.wind;
     // z: breaking threshold in standard deviations of the Jacobian. Calibrated so visible coverage
     // follows Monahan & O'Muircheartaigh (1980), stage A + B, within ~10% from 8 to 28 m/s.
-    const z = table(U, [3, 5, 8.5, 11, 15, 21, 28], [3.2, 2.45, 1.95, 1.7, 1.55, 1.4, 1.15]);
+    const z = table(U, [3, 5, 8.5, 11, 15, 21, 28], [3.1, 2.35, 1.82, 1.58, 1.53, 1.37, 1.15]);
     const gain = 1.2;
     const decay = lerp(0.8, 0.18, smoothstep(5, 24, U)); // residual foam lingers longer in strong wind
     return [z, gain, decay];
