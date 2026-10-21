@@ -193,6 +193,7 @@ const ASSEMBLE_FS = `
 uniform sampler2D uF0;
 uniform sampler2D uF1;
 uniform sampler2D uPrev;
+uniform sampler2D uPrevA;
 // bicubic Catmull-Rom of the foam channel at a texel-space position (periodic)
 float foamCR(sampler2D tex, vec2 pos) {
   ivec2 n = textureSize(tex, 0);
@@ -219,6 +220,7 @@ uniform vec3 uFoam;  // x: jacobian threshold bias, y: generation gain, z: decay
 uniform vec2 uDrift; // foam advection by the wind drift (texture uv per second)
 layout(location = 0) out vec4 oDisp;
 layout(location = 1) out vec4 oSlope;
+layout(location = 2) out vec4 oActive;
 void main() {
   ivec2 id = ivec2(gl_FragCoord.xy);
   float sgn = ((id.x + id.y) & 1) == 1 ? -1.0 : 1.0;
@@ -236,6 +238,9 @@ void main() {
   float foam = prev * exp(-uFoam.z * uDt);
   foam += max(uFoam.x - J, 0.0) * uFoam.y * uDt;
   foam = min(foam, 3.0);
+  // active breaking: the same generation, but it lives only while the crest is spilling (~0.4 s)
+  float act = texelFetch(uPrevA, id, 0).r * exp(-2.5 * uDt) + max(uFoam.x - J, 0.0) * uFoam.y * uDt * 2.5;
+  oActive = vec4(min(act, 2.0), 0.0, 0.0, 1.0);
   oDisp = vec4(Dx * uLambda, Dy, Dz * uLambda, foam);
   oSlope = vec4(s, s * s);
 }`;
@@ -277,7 +282,9 @@ export class Ocean {
       const mk = () => new Texture(gl, { w: n, h: n, format: 'rgba16f', wrap: 'repeat', mips: true, aniso: 16 });
       c.disp = [mk(), mk()];
       c.slope = [mk(), mk()];
-      c.targets = [new Target(gl, [c.disp[0], c.slope[0]]), new Target(gl, [c.disp[1], c.slope[1]])];
+      const mkA = () => new Texture(gl, { w: n, h: n, format: 'r16f', wrap: 'repeat', mips: true, aniso: 16 });
+      c.active = [mkA(), mkA()];
+      c.targets = [new Target(gl, [c.disp[0], c.slope[0], c.active[0]]), new Target(gl, [c.disp[1], c.slope[1], c.active[1]])];
       c.cur = 0;
       // clear foam history
       for (const t of c.targets) { t.bind(); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
@@ -332,7 +339,7 @@ export class Ocean {
       P && P.section('o.assemble');
       const next = 1 - c.cur;
       fullscreen(gl, this.progAssemble, {
-        uF0: src[0], uF1: src[1], uPrev: c.disp[c.cur],
+        uF0: src[0], uF1: src[1], uPrev: c.disp[c.cur], uPrevA: c.active[c.cur],
         uLambda: this.lambda, uDt: dt, uFoam: [threshold, gain, foam[2]],
         uDrift: [this.drift[0] / c.L, this.drift[1] / c.L],
       }, c.targets[next]);
@@ -340,6 +347,7 @@ export class Ocean {
       P && P.section('o.mips');
       c.disp[c.cur].genMips();
       c.slope[c.cur].genMips();
+      c.active[c.cur].genMips();
     });
   }
 
@@ -347,6 +355,7 @@ export class Ocean {
     return {
       disp: this.cascades.map((c) => c.disp[c.cur]),
       slope: this.cascades.map((c) => c.slope[c.cur]),
+      active: this.cascades.map((c) => c.active[c.cur]),
       sizes: this.cascades.map((c) => c.L),
       texels: this.cascades.map((c) => c.texel),
     };

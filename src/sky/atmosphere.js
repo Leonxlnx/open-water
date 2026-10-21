@@ -199,7 +199,6 @@ void main() {
 const AERIAL_FS = SKY_COMMON + SCATTER_FN + `
 in vec2 vUv;
 layout(location = 0) out vec4 oL;
-layout(location = 1) out vec4 oT;
 uniform vec3 uSun;
 uniform float uCamH;
 uniform float uMaxDist;
@@ -217,8 +216,8 @@ void main() {
   vec3 L, T;
   if (len < 1e-5) { L = vec3(0.0); T = vec3(1.0); }
   else integrate(ro, seg / len, len, uSun, 24, L, T);
-  oL = vec4(L, 1.0);
-  oT = vec4(T, 1.0);
+  // alpha: optical depth in green; the other channels follow from the medium's spectral ratio
+  oL = vec4(L, -log(max(T.g, 1e-4)));
 }`;
 
 export class Atmosphere {
@@ -228,11 +227,10 @@ export class Atmosphere {
     this.multiScatter = new Texture(gl, { w: 32, h: 32, format: 'rgba16f' });
     this.skyView = new Texture(gl, { w: 256, h: 128, format: 'rgba16f' });
     this.aerialL = new Texture(gl, { w: 64, h: 64, format: 'rgba16f' });
-    this.aerialT = new Texture(gl, { w: 64, h: 64, format: 'rgba16f' });
     this.tTrans = new Target(gl, [this.transmittance]);
     this.tMS = new Target(gl, [this.multiScatter]);
     this.tSky = new Target(gl, [this.skyView]);
-    this.tAerial = new Target(gl, [this.aerialL, this.aerialT]);
+    this.tAerial = new Target(gl, [this.aerialL]);
     this.pTrans = new Program(gl, FULLSCREEN_VS, TRANSMITTANCE_FS, { label: 'atmo.trans' });
     this.pMS = new Program(gl, FULLSCREEN_VS, MULTISCATTER_FS, { label: 'atmo.ms' });
     this.pSky = new Program(gl, FULLSCREEN_VS, SKYVIEW_FS, { label: 'atmo.sky' });
@@ -245,8 +243,10 @@ export class Atmosphere {
     // haze: multiplier of sea-level aerosol density (marine boundary layer)
     const mieScat = 0.0036 * haze;
     const mieExt = mieScat / 0.9; // sea-salt aerosols are bright: single scattering albedo ~0.9
+    const R = [5.802e-3, 13.558e-3, 33.1e-3];
+    this.extRatio = R.map((r) => (r + mieExt) / (R[1] + mieExt));
     return {
-      uRayleigh: [5.802e-3, 13.558e-3, 33.1e-3],
+      uRayleigh: R,
       uMie: [mieScat, mieExt],
       uMieH: 1.2,
       uOzone: [0.65e-3, 1.881e-3, 0.085e-3],
@@ -274,10 +274,10 @@ export class Atmosphere {
 export const SKY_LOOKUP_GLSL = `
 uniform sampler2D uSkyView;
 uniform sampler2D uAerialL;
-uniform sampler2D uAerialT;
 uniform sampler2D uTransmittance;
 uniform vec3 uSunDir;
 uniform float uAerialMax;
+uniform vec3 uExtRatio;   // extinction of the sea-level medium relative to its green channel
 uniform float uHazeSun;   // fraction of direct sun reaching the haze below the clouds
 uniform sampler2D uIrradiance;
 uniform float uCamHkm;
@@ -301,10 +301,12 @@ void aerial(vec3 d, float distKm, out vec3 L, out vec3 T) {
   vec2 h = sunBasisAz(d);
   float az = abs(atan(h.y, h.x)) / 3.14159265;
   vec2 uv = vec2(az, sqrt(clamp(distKm / uAerialMax, 0.0, 1.0)));
-  L = texture(uAerialL, uv).rgb * uLightScale;
-  T = texture(uAerialT, uv).rgb;
-  // under a cloud deck the haze is lit by diffuse light from the cloud base, not the sun
-  float ext = 1.0 - dot(T, vec3(0.3333));
+  vec4 al = texture(uAerialL, uv);
+  L = al.rgb * uLightScale;
+  T = exp(-al.a * uExtRatio);
+  // under a cloud deck the haze is lit by diffuse light from the cloud base, not the sun. Per channel:
+  // in an isotropic diffuse field the haze takes the field's own colour (no warm band at the horizon)
+  vec3 ext = 1.0 - T;
   L = L * uHazeSun + ext * skyIrradiance() * (0.9 / (2.0 * 3.14159)) * (1.0 - uHazeSun);
 }
 vec3 transmittanceAt(float hKm, float mu) {

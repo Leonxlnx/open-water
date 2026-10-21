@@ -48,11 +48,10 @@ out vec4 oColor;
 uniform vec3 uCamPos;
 uniform sampler2D uDisp[3];
 uniform sampler2D uSlope[4];
+uniform sampler2D uActive;      // active breaking of the main whitecap cascade (117 m)
 uniform float uSize[4];
 uniform float uTexel[4];
 uniform sampler2D uEnv;          // reflection environment (equirect, mips = roughness)
-uniform sampler2D uCloudShadow;  // sun visibility on the sea plane
-uniform vec4 uShadowRect;        // xz origin, 1/size
 uniform float uUnresolved;       // unresolved mean square slope (Cox-Munk remainder)
 uniform float uHs;
 uniform vec3 uRrs;               // water-leaving remote sensing reflectance (1/sr)
@@ -61,6 +60,13 @@ uniform float uFoamAmount;
 uniform float uFoamLace;         // residual foam lace everywhere at gale force (stage-B whitecaps)
 uniform float uTime;
 uniform float uRain;
+uniform vec3 uGust;              // x: gustiness 0..1, yz: downwind drift of the gust pattern (m)
+float ghash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float gnoise(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(ghash(i), ghash(i + vec2(1, 0)), f.x), mix(ghash(i + vec2(0, 1)), ghash(i + vec2(1, 1)), f.x), f.y);
+}
 uniform vec3 uFlash;             // lightning illuminance
 uniform int uDebug;
 uniform vec3 uDbgMask; // debug: reflection, sun, body multipliers
@@ -123,9 +129,17 @@ void main() {
   // slopes and their variance from all cascades (hardware anisotropic + trilinear filtering)
   vec2 s = vec2(0.0);
   vec2 var = vec2(0.0);
-#define SLOPE(c) { vec4 m = texture(uSlope[c], vXZ / uSize[c]); s += m.xy; var += max(m.zw - m.xy * m.xy, vec2(0.0)); }
-  SLOPE(0) SLOPE(1) SLOPE(2) SLOPE(3)
+// short-wave modulation: gust patches (cat's paws, ~100-300 m, drifting with the wind) and
+  // hydrodynamic modulation (short waves steepen on the crests of the long waves)
+  vec2 gq = vXZ - uGust.yz;
+  float gust = gnoise(gq / 210.0) * 0.6 + gnoise(gq / 70.0 + 7.3) * 0.4;
+  float crestM = smoothstep(-0.3 * uHs, 0.3 * uHs, vDisp);
+  float sm = clamp((1.0 + uGust.x * (gust - 0.5) * 1.7) * mix(0.8, 1.25, crestM), 0.35, 1.9);
+#define SLOPE(c, k) { vec4 m = texture(uSlope[c], vXZ / uSize[c]); s += m.xy * k; var += max(m.zw - m.xy * m.xy, vec2(0.0)) * k * k; }
+  SLOPE(0, 1.0) SLOPE(1, 1.0) SLOPE(2, sm) SLOPE(3, sm)
   float foamRaw = 0.0;
+  float plume = 0.0;
+  float activeRaw = 0.0;
   {
     // quintic-smoothed lookups: thresholding a bilinear coarse field gives polygonal outlines
     // (explicit gradients: the remapped coordinates must not drive mip selection)
@@ -136,14 +150,19 @@ void main() {
     foamRaw = d0.w * 0.32 + d1.w * 1.0 + d2.w * 0.75;
     // waves break on the crests of the energetic (dominant) waves: whitecaps cluster there
     float crest = smoothstep(-0.2 * uHs, 0.3 * uHs, vDisp);
-    foamRaw *= mix(0.3, 1.55, crest);
+    foamRaw *= mix(0.65, 1.3, crest);
+    activeRaw = textureGrad(uActive, u1, dFdx(u1) * 2.0, dFdy(u1) * 2.0).r * 1.3;
+    activeRaw *= mix(0.6, 1.35, crest);
+    // bubble plume: the same foam fields blurred over a few metres (bubbles spread and sink)
+    vec4 b1 = texture(uDisp[1], u1, 1.2);
+    plume = clamp(b1.w * mix(0.5, 1.3, crest), 0.0, 2.0);
   }
 
   // rain ripples: normal perturbation near the camera, extra roughness further away
   vec3 rr = rainRipples(vXZ, uTime, uRain, dist);
   s += rr.xy;
   // unresolved capillary roughness: sparkles near the camera, smooth BRDF lobe far away
-  float unres = uUnresolved * 0.5 * mix(0.35, 1.0, smoothstep(4.0, 400.0, dist));
+  float unres = uUnresolved * 0.5 * mix(0.35, 1.0, smoothstep(4.0, 400.0, dist)) * sm * sm;
   vec2 sigmaSq = var + vec2(unres) + vec2(rr.z);
   sigmaSq = max(sigmaSq, vec2(2e-5));
 
@@ -164,8 +183,8 @@ void main() {
   float F = 0.02 + 0.98 * meanFresnel(nv, sigmaV);
 
   // sun visibility through clouds
-  vec2 suv = (P.xz - uShadowRect.xy) * uShadowRect.zw;
-  float sunVis = texture(uCloudShadow, suv).r;
+  vec2 suv = (P.xz - uShaftRect.xy) * uShaftRect.zw;
+  float sunVis = texture(uShaftShadow, suv).r;
 
   // reflection of the sky / clouds, blurred by the unresolved roughness
   vec3 R = reflect(-V, N);
@@ -198,11 +217,14 @@ void main() {
   float side = pow(nv, 2.0) * 0.18;
   vec3 sss = uSSS * (1.0 - F) * (H * back * 3.0 * uSunE * sunVis + side * (uSkyE + uSunE * sunVis * max(L.y, 0.0) * 0.3));
 
+  // submerged bubbles backscatter strongly: the water around and beneath whitecaps turns pale aquamarine
+  float pl = (1.0 - exp(-plume * uFoamAmount * 1.8)) * (1.0 - smoothstep(150.0, 900.0, dist) * 0.6);
+  body += (1.0 - F) * pl * vec3(0.02, 0.075, 0.07) * Ed / M_PI;
   vec3 col = refl * uDbgMask.x + sun * uDbgMask.y + (body + sss) * uDbgMask.z;
   col += (1.0 - F) * uRain * 0.035 * smoothstep(3.0, 40.0, dist) * (uSkyE + uSunE * sunVis * max(L.y, 0.0)) / M_PI;
 
   // foam
-  vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount, uFoamLace * uFoamAmount, dist);
+  vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount, uFoamLace * uFoamAmount, activeRaw * uFoamAmount, dist);
   float foam = fc.x;
   if (uDebug == 1) { oColor = vec4(foam, foamRaw, 0.0, 1.0); return; }
   if (foam > 0.0) {
@@ -212,10 +234,12 @@ void main() {
     vec3 Nf = normalize(vec3(-s.x * 0.5 + foamBump.x, 1.0, -s.y * 0.5 + foamBump.y));
     float wrapL = max((dot(Nf, L) + 0.35) / 1.35, 0.0);
     vec3 Ein = uSunE * sunVis * wrapL + uSkyE + uFlash;
-    float albedo = mix(0.32, 0.86, thick);
-    vec3 tint = mix(vec3(0.62, 0.86, 0.9), vec3(1.0), thick);
+    // bubble foam scatters like a diffuse white layer (albedo ~0.6-0.85); only its thinnest
+    // parts let a little of the blue-green water show through
+    float albedo = mix(0.6, 0.86, thick);
+    vec3 tint = mix(vec3(0.82, 0.93, 0.95), vec3(1.0), thick);
     vec3 foamCol = albedo * tint * Ein / M_PI;
-    col = mix(col, foamCol, foam * mix(0.55, 1.0, thick));
+    col = mix(col, foamCol, foam);
   }
 
   // lightning reflection (broad, from cloud base)

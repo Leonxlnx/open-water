@@ -23,6 +23,7 @@ const RENDER_MODE = params.has('render');
 // quality tiers: 'rt' keeps the live app interactive on integrated GPUs, 'high' is for the film
 const QUALITY = {
   rt: { cloudDiv: 3, steps: 44, lightSteps: 4, lightDetail: 1, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], angular: 400, upSteps: 2 },
+  ultra: { cloudDiv: 1, steps: 128, lightSteps: 6, lightDetail: 3, blend: 0.3, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], angular: 640, upSteps: 4 },
   high: { cloudDiv: 2, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.3, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], angular: 640, upSteps: 4 },
 }[params.get('q') || (RENDER_MODE ? 'high' : 'rt')];
 
@@ -183,7 +184,7 @@ export class App {
     };
     this.local = L;
     const skyU = {
-      uSkyView: this.atmo.skyView, uAerialL: this.atmo.aerialL, uAerialT: this.atmo.aerialT,
+      uSkyView: this.atmo.skyView, uAerialL: this.atmo.aerialL, uExtRatio: this.atmo.extRatio,
       uTransmittance: this.atmo.transmittance, uSunDir: sun, uAerialMax: this.atmo.maxDist,
       uIrradiance: this.sky.irradiance, uCamHkm: camH / 1000, uLightScale: lightScale, uLightMag: lightMag,
       // fraction of direct sun reaching the haze/rain below the clouds (a thick deck blocks it all)
@@ -256,14 +257,18 @@ export class App {
     gl.depthFunc(gl.LESS);
     const ot = this.ocean.textures();
     const wd = (S.windDir * Math.PI) / 180;
+    this.gustDrift = this.gustDrift || [0, 0];
+    this.gustDrift[0] += Math.cos(wd) * S.wind * 0.9 * dt;
+    this.gustDrift[1] += Math.sin(wd) * S.wind * 0.9 * dt;
     this.waterUniforms = {
       ...skyU, ...fogU,
       uViewProj: M.vp, uCamPos: this.cam.pos,
-      uDisp: ot.disp.slice(0, 3), uSlope: ot.slope, uSize: ot.sizes, uTexel: ot.texels, uDispScale: 1,
+      uDisp: ot.disp.slice(0, 3), uSlope: ot.slope, uActive: ot.active[1], uSize: ot.sizes, uTexel: ot.texels, uDispScale: 1,
       uEnv: this.sky.env, uCloudShadow: this.clouds.shadow, uShadowRect: this.clouds.shadowRect,
       uUnresolved: stats.unresolved, uHs: stats.hs,
-      uRrs: mixv([0.00022, 0.0019, 0.0088], [0.0011, 0.0032, 0.0046], smoothstep(9, 24, S.wind)), uSSS: [0.004, 0.05, 0.042],
-      uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(15, 25, S.wind) * 0.38, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
+      uRrs: mixv([0.00022, 0.0019, 0.0088], [0.0011, 0.0038, 0.0038], smoothstep(9, 24, S.wind)), uSSS: [0.004, 0.05, 0.042],
+      uGust: [0.35 + 0.45 * smoothstep(3, 9, S.wind) * (1 - smoothstep(16, 24, S.wind)), this.gustDrift[0], this.gustDrift[1]],
+      uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(10.5, 20, S.wind) * 0.45, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
       uFoamTex: this.foam.tex, uWindDir: [Math.cos(wd), Math.sin(wd)], uFoamStretch: Math.min(Math.max((S.wind - 10) / 8, 0), 1), uDebug: 0,
     };
     this.water.draw(this.waterUniforms);
@@ -297,8 +302,8 @@ export class App {
     const backlit = night ? 0 : smoothstep(0.55, 0.95, (M.fwd[0] * sun[0] + M.fwd[2] * sun[2]) / fh / (Math.hypot(sun[0], sun[2]) || 1)) * (1 - smoothstep(12, 35, W.time.sunElev)) * (1 - L.clouds * 0.8);
     P.section('post');
     this.post.run(this.hdr, dt, {
-      time: t, bloom: 0.05, exposureBias: Number(params.get('ev') || 0) - 1.7 * L.dark * L.dark,
-      skyU, cloudShadow: this.clouds.shadow, incident: 0.75 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : 0.1, night: night ? 1 : 0,
+      time: t, bloom: 0.05, exposureBias: Number(params.get('ev') || 0) - 1.2 * L.dark * L.dark,
+      skyU, cloudShadow: this.clouds.shadow, incident: 0.75 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : 0.1 + 0.55 * smoothstep(0.6, 0.95, L.clouds) * (night ? 0 : 1), night: night ? 1 : 0,
       look: params.has('look') ? params.get('look').split(',').map(Number) : undefined,
     });
     P.end();
@@ -322,6 +327,8 @@ export class App {
     this.fade = film.fadeAt(tl);
     const W = this.weather;
     const w = film.weatherAt(tl);
+    // debug: ?fo=clouds:0.1,haze:1 overrides timeline values
+    if (params.has('fo')) for (const kv of params.get('fo').split(',')) { const [k, v] = kv.split(':'); w[k] = Number(v); }
     for (const k in w) {
       if (k in W.time) { W.time[k] = w[k]; W.timeTarget[k] = w[k]; }
       else { W.state[k] = w[k]; W.target[k] = w[k]; }

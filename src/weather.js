@@ -94,8 +94,8 @@ export class Weather {
   foam() {
     const U = this.state.wind;
     // z: breaking threshold in standard deviations of the Jacobian. Calibrated so visible coverage
-    // follows ~2x Monahan & O'Muircheartaigh (1980): whitecaps begin ~4 m/s, ~1% at Bf5, ~20% at Bf9.
-    const z = table(U, [3, 5, 8.5, 11, 15, 21, 28], [3.4, 2.7, 2.3, 2.05, 1.8, 1.65, 1.25]);
+    // follows Monahan & O'Muircheartaigh (1980), stage A + B, within ~10% from 8 to 28 m/s.
+    const z = table(U, [3, 5, 8.5, 11, 15, 21, 28], [3.2, 2.45, 1.95, 1.7, 1.55, 1.4, 1.15]);
     const gain = 1.2;
     const decay = lerp(0.8, 0.18, smoothstep(5, 24, U)); // residual foam lingers longer in strong wind
     return [z, gain, decay];

@@ -42,7 +42,10 @@ void main() {
     col += sunIlluminance() * uSunVis / 6.8e-5 * limb * edge * 1.0;
   }
   if (uCloudsOn > 0.5) {
-    vec4 cl = texture(uClouds, vUv);
+    // tent-filtered upsample of the low-resolution cloud buffer: removes residual ray-jitter speckle
+    vec2 ct = 0.6 / vec2(textureSize(uClouds, 0));
+    vec4 cl = (texture(uClouds, vUv + vec2(-ct.x, -ct.y)) + texture(uClouds, vUv + vec2(ct.x, -ct.y))
+             + texture(uClouds, vUv + vec2(-ct.x, ct.y)) + texture(uClouds, vUv + vec2(ct.x, ct.y))) * 0.25;
     vec3 sunPart = col - skyRadiance(d);
     col = skyRadiance(d) * cl.a + sunPart * cl.a * cl.a * cl.a + cl.rgb;
   }
