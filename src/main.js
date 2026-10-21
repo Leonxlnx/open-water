@@ -81,7 +81,8 @@ export class App {
     this.w = w; this.h = h;
     this.canvas.width = w; this.canvas.height = h;
     this.ms = new MSTarget(gl, w, h, this.msaa, QUALITY.hdr);
-    this.hdr = new Texture(gl, { w, h, format: 'rgba16f' });
+    // the resolve target must match the multisample format exactly (blit resolve rule)
+    this.hdr = new Texture(gl, { w, h, format: QUALITY.hdr });
     this.hdrTarget = new Target(gl, [this.hdr]);
     this.post.resize(w, h);
     this.clouds.resize(w, h, QUALITY.cloudDiv);
@@ -141,7 +142,13 @@ export class App {
     const W = this.weather;
     W.update(dt);
     const S = W.state;
-    const sun = W.sunDir();
+    const night = W.time.sunElev < -7;
+    const sun = night ? W.moonDir() : W.sunDir();
+    // Moonlight is rendered at unit scale (it would underflow fp16); night is made in exposure.
+    const lightScale = 1;
+    const lightMag = night ? -12.7 : -26.74;
+    const nightGain = night ? 40 : 1; // lightning against moonlight (physically ~4e5x, capped)
+    this.night = night;
 
     const P = this.prof;
     P.poll();
@@ -176,7 +183,7 @@ export class App {
     const skyU = {
       uSkyView: this.atmo.skyView, uAerialL: this.atmo.aerialL, uAerialT: this.atmo.aerialT,
       uTransmittance: this.atmo.transmittance, uSunDir: sun, uAerialMax: this.atmo.maxDist,
-      uIrradiance: this.sky.irradiance, uCamHkm: camH / 1000,
+      uIrradiance: this.sky.irradiance, uCamHkm: camH / 1000, uLightScale: lightScale, uLightMag: lightMag,
       // fraction of direct sun reaching the haze/rain below the clouds (a thick deck blocks it all)
       uHazeSun: (1 - smoothstep(0.3, 0.9, L.clouds)) * (1 - 0.85 * L.dark) * 0.97 + 0.03 * (1 - L.dark),
     };
@@ -189,7 +196,7 @@ export class App {
     const lp = this.lightning.pos;
     const ldist = Math.hypot(lp[0] - this.cam.pos[0], lp[2] - this.cam.pos[2]);
     const flashE = flash * 0.012 / (1 + (ldist / 2500) ** 2);
-    const flashRGB = [0.8 * flashE, 0.85 * flashE, 1.0 * flashE];
+    const flashRGB = [0.8 * flashE * nightGain, 0.85 * flashE * nightGain, 1.0 * flashE * nightGain];
     // rain extinction: visibility ~ 3.9/beta drops from >20 km to ~1.5 km in a downpour
     const fogDensity = S.mist * 1.2e-3 + S.rain * 1.3e-3;
     const stormFog = S.sMist * 1.2e-3 + S.sRain * 1.3e-3;
@@ -230,7 +237,8 @@ export class App {
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.disable(gl.DEPTH_TEST);
-    this.sky.drawBackground({ ...skyU, ...fogU, uInvViewProj: M.inv, uCamPos: this.cam.pos, uClouds: this.clouds.screen, uCloudsOn: 1, uSunVis: 1 });
+    this.sky.drawBackground({ ...skyU, ...fogU, uInvViewProj: M.inv, uCamPos: this.cam.pos, uClouds: this.clouds.screen, uCloudsOn: 1, uSunVis: 1,
+      uIsMoon: night ? 1 : 0, uPixelAngle: this.cam.fov / this.h, uTime: t });
 
     P.section('water');
     gl.enable(gl.DEPTH_TEST);
@@ -267,7 +275,7 @@ export class App {
     P.section('post');
     this.post.run(this.hdr, dt, {
       time: t, bloom: 0.05, exposureBias: Number(params.get('ev') || 0) - 0.4 * L.dark,
-      skyU, cloudShadow: this.clouds.shadow, incident: 0.75, fade: this.fade ?? 1, whiteBalance: 0.55 + 0.3 * L.dark,
+      skyU, cloudShadow: this.clouds.shadow, incident: 0.75, fade: this.fade ?? 1, whiteBalance: 0.55 + 0.3 * L.dark, night: night ? 1 : 0,
     });
     P.end();
     this.stats = stats;

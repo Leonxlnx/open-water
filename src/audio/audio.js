@@ -128,7 +128,7 @@ export class AudioEngine {
     const swell = 0.55 + 0.45 * Math.pow(0.5 + 0.5 * Math.sin((2 * Math.PI * t) / tp + 3 * vnoise(t / (tp * 3))), 2);
     const group = 0.6 + 0.6 * vnoise(t / (tp * 4) + 11);
     return {
-      wash: (0.05 + 0.1 * clamp(p.hs / 8, 0, 1.2)) * swell * group,
+      wash: (0.085 + 0.1 * clamp(p.hs / 8, 0, 1.2)) * swell * group,
       washF: 260 + 900 * windN * swell,
       hiss: (0.004 + 0.9 * Math.sqrt(clamp(p.foam, 0, 0.4))) * 0.22 * (0.4 + 0.9 * swell * vnoise(t * 0.9 + 5)),
       hissF: 1800 + 2600 * windN,
@@ -211,7 +211,7 @@ export class AudioEngine {
     lp.type = 'lowpass';
     lp.frequency.value = clamp(14000 / (1 + dist / 1200), 250, 14000);
     const g = ctx.createGain();
-    g.gain.value = clamp(power * 1.6 / (1 + dist / 2500), 0.05, 1.4);
+    g.gain.value = clamp(power * 1.15 / (1 + dist / 2500), 0.05, 1.1);
     const pan = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
     let n = src.connect(lp).connect(g);
     if (pan) { pan.pan.value = (seed - 0.5) * 0.9; n = n.connect(pan); }

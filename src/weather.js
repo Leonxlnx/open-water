@@ -69,6 +69,12 @@ export class Weather {
     return [Math.cos(e) * Math.cos(az), Math.sin(e), Math.cos(e) * Math.sin(az)];
   }
 
+  // full moon opposite the sun, risen ~30 degrees
+  moonDir() {
+    const e = (Math.min(-this.time.sunElev, 40) * 0.6 + 14) * Math.PI / 180, az = ((this.time.sunAz + 180) * Math.PI) / 180;
+    return [Math.cos(e) * Math.cos(az), Math.sin(e), Math.cos(e) * Math.sin(az)];
+  }
+
   spectrum() {
     const s = this.state;
     const r = (x) => Math.round(x * 1000) / 1000;

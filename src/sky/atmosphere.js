@@ -281,6 +281,8 @@ uniform float uAerialMax;
 uniform float uHazeSun;   // fraction of direct sun reaching the haze below the clouds
 uniform sampler2D uIrradiance;
 uniform float uCamHkm;
+uniform float uLightScale; // radiometric scale of the light source (kept at 1: fp16 buffers)
+uniform float uLightMag;   // apparent magnitude of the light source: sun -26.74, full moon -12.7
 vec3 skyIrradiance() { return texelFetch(uIrradiance, ivec2(0), 0).rgb; }
 vec2 sunBasisAz(vec3 d) {
   vec3 sunH = normalize(vec3(uSunDir.x, 0.0, uSunDir.z) + vec3(1e-6, 0.0, 0.0));
@@ -293,19 +295,19 @@ vec3 skyRadiance(vec3 d) {
   float az = abs(atan(h.y, h.x)) / 3.14159265;
   float el = asin(clamp(d.y, -1.0, 1.0)) / (3.14159265 * 0.5);
   float v = sign(el) * sqrt(abs(el));
-  return texture(uSkyView, vec2(az, v * 0.5 + 0.5)).rgb;
+  return texture(uSkyView, vec2(az, v * 0.5 + 0.5)).rgb * uLightScale;
 }
 void aerial(vec3 d, float distKm, out vec3 L, out vec3 T) {
   vec2 h = sunBasisAz(d);
   float az = abs(atan(h.y, h.x)) / 3.14159265;
   vec2 uv = vec2(az, sqrt(clamp(distKm / uAerialMax, 0.0, 1.0)));
-  L = texture(uAerialL, uv).rgb;
+  L = texture(uAerialL, uv).rgb * uLightScale;
   T = texture(uAerialT, uv).rgb;
   // under a cloud deck the haze is lit by diffuse light from the cloud base, not the sun
   float ext = 1.0 - dot(T, vec3(0.3333));
   L = L * uHazeSun + ext * skyIrradiance() * (0.9 / (2.0 * 3.14159)) * (1.0 - uHazeSun);
 }
-vec3 sunTransmittanceAt(float hKm, float mu) {
+vec3 transmittanceAt(float hKm, float mu) {
   const float Rg_ = 6360.0, Rt_ = 6460.0;
   float r = Rg_ + max(hKm, 0.0005);
   float H = sqrt(Rt_ * Rt_ - Rg_ * Rg_);
@@ -318,7 +320,48 @@ vec3 sunTransmittanceAt(float hKm, float mu) {
   float fade = smoothstep(cosH - 0.004, cosH + 0.004, mu);
   return texture(uTransmittance, vec2((d - dmin) / (dmax - dmin), rho / H)).rgb * fade;
 }
+// illuminance of the light source (sun, or moon at night) at height hKm for direction cosine mu
+vec3 sunTransmittanceAt(float hKm, float mu) { return transmittanceAt(hKm, mu) * uLightScale; }
 vec3 sunIlluminance() { return sunTransmittanceAt(uCamHkm, uSunDir.y); }
+
+// Night sky. Stars are points with physical flux (magnitude m -> 10^(-0.4 (m + 26.74)) of the
+// sun), N(<m) ~ 10^(0.5 m) down to m = 6.5, spread over one pixel by a gaussian PSF, extinguished
+// by the atmosphere and scintillating near the horizon. Against a daylight sky they vanish on
+// their own; the Milky Way only shows on moonless nights, as in reality.
+float starHash(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.x + p.y) * p.z); }
+vec3 starField(vec3 d, float pixelAngle, float time) {
+  if (d.y < -0.01) return vec3(0.0);
+  const float K = 150.0;
+  vec3 p = d * K;
+  vec3 base = floor(p - 0.5);
+  vec3 acc = vec3(0.0);
+  float sigma = pixelAngle * 0.75;
+  for (int i = 0; i < 8; i++) {
+    vec3 cell = base + vec3(float(i & 1), float((i >> 1) & 1), float((i >> 2) & 1));
+    float h = starHash(cell);
+    if (h > 0.055) continue;
+    vec3 sp = normalize(cell + 0.15 + 0.7 * vec3(starHash(cell + 11.1), starHash(cell + 23.7), starHash(cell + 37.3)));
+    vec3 x = cross(sp, d);
+    float ang2 = dot(x, x);
+    if (ang2 > 36.0 * sigma * sigma) continue;
+    float u = starHash(cell + 5.3);
+    float m = 6.5 + 2.0 * log(max(u, 1e-5)) / log(10.0);
+    float flux = pow(10.0, -0.4 * (m - uLightMag));
+    float psf = exp(-0.5 * ang2 / (sigma * sigma)) / (6.2832 * sigma * sigma);
+    float tcol = starHash(cell + 71.9);
+    vec3 col = mix(vec3(1.0, 0.78, 0.55), vec3(0.78, 0.86, 1.0), smoothstep(0.1, 0.9, tcol));
+    float twinkle = 1.0 + 0.55 * (starHash(cell + floor(time * 18.0)) - 0.5) * exp(-max(d.y, 0.0) * 12.0);
+    acc += col * flux * psf * twinkle;
+  }
+  // Milky Way: a band of unresolved stars with dark dust lanes
+  vec3 g = normalize(vec3(0.42, 0.55, -0.72));
+  float b = dot(d, g);
+  float band = exp(-b * b / 0.035);
+  float n = starHash(floor(d * 60.0)) * 0.35 + 0.65;
+  float dust = smoothstep(0.0, 0.08, abs(b + 0.03 * sin(d.x * 9.0 + d.z * 5.0)));
+  acc += vec3(0.85, 0.88, 1.0) * band * n * mix(0.35, 1.0, dust) * 2.5e-10 * pow(10.0, 0.4 * (-26.74 - uLightMag));
+  return acc * transmittanceAt(0.0, max(d.y, 0.0));
+}
 // Rain / mist below the cloud deck: extinction uFogDensity (1/m) up to uFogTop (m).
 // Lit by the diffuse sky/cloud light plus a forward-scattering sun lobe (droplets, g ~ 0.7).
 uniform float uFogDensity;

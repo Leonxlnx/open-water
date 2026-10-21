@@ -22,6 +22,21 @@ try {
   const size = await page.evaluate(() => [app.w, app.h]);
   console.log('canvas', size.join('x'));
 
+  if (args.remux) {
+    const b64 = await page.evaluate(async () => {
+      const buf = new Uint8Array(await app.filmAudio());
+      let s = '';
+      for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+      return btoa(s);
+    });
+    const wav = out.replace(/\.mp4$/, '.wav');
+    await writeFile(wav, Buffer.from(b64, 'base64'));
+    await new Promise((res) => spawn('ffmpeg', ['-y', '-loglevel', 'error', '-i', resolve(args.remux), '-i', wav, '-map', '0:v', '-map', '1:a', '-c:v', 'copy',
+      '-af', 'alimiter=limit=0.84:attack=3:release=60:level=disabled', '-c:a', 'aac', '-b:a', '256k', '-shortest', '-movflags', '+faststart', out], { stdio: 'inherit' }).on('close', res));
+    console.log('remuxed ->', out);
+    process.exit(0);
+  }
+
   // soundtrack first (fast), then frames
   const wavPath = out.replace(/\.mp4$/, '.wav');
   if (!args.noaudio) {
@@ -42,7 +57,7 @@ try {
     '-vf', 'vflip', '-c:v', 'libx264', '-preset', 'slow', '-crf', crf, '-pix_fmt', 'yuv420p', '-profile:v', 'high',
     '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
     '-x264-params', 'aq-mode=3:deblock=-1,-1', '-tune', 'film',
-    ...(args.noaudio ? [] : ['-c:a', 'aac', '-b:a', '256k', '-shortest']),
+    ...(args.noaudio ? [] : ['-af', 'alimiter=limit=0.84:attack=3:release=60:level=disabled', '-c:a', 'aac', '-b:a', '256k', '-shortest']),
     '-movflags', '+faststart', out,
   ], { stdio: ['pipe', 'inherit', 'inherit'] });
 

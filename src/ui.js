@@ -8,7 +8,7 @@ const SLIDERS = [
   { key: 'rain', label: 'Rain', min: 0, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 50)} mm/h` },
   { key: 'clouds', label: 'Clouds', min: 0, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
   { key: 'lightning', label: 'Lightning', min: 0, max: 1, step: 0.01, fmt: (v) => (v < 0.01 ? 'off' : `${Math.round(v * 100)}%`) },
-  { key: 'sunElev', label: 'Sun height', min: -3, max: 75, step: 0.1, fmt: (v) => `${v.toFixed(1)}°` },
+  { key: 'sunElev', label: 'Sun height', min: -18, max: 75, step: 0.1, fmt: (v) => (v < -7 ? `${v.toFixed(1)}° · moonlight` : `${v.toFixed(1)}°`) },
   { key: 'sunAz', label: 'Sun bearing', min: 0, max: 360, step: 1, fmt: (v) => `${Math.round(v)}°` },
 ];
 

@@ -105,6 +105,7 @@ uniform float uVignette;
 uniform float uFlashExposure;
 uniform float uManualExposure;
 uniform float uFade;
+uniform float uNight;
 
 vec3 agxContrast(vec3 x) {
   vec3 x2 = x * x, x4 = x2 * x2;
@@ -141,8 +142,12 @@ void main() {
   float avg = clamp(adapt.r, uMinLum, uMaxLum);
   c *= adapt.gba;
   float exposure = uManualExposure > 0.0 ? uManualExposure : 0.18 / avg;
+  exposure *= exp2(-2.3 * uNight);
   exposure *= exp2(uExposureBias) / (1.0 + uFlashExposure);
   c *= exposure * uFade;
+  float scot = uNight;
+  float ly = dot(c, vec3(0.2126, 0.7152, 0.0722));
+  c = mix(c, ly * vec3(0.72, 0.88, 1.22), scot * 0.75);
   vec2 d = vUv - 0.5;
   c *= 1.0 - uVignette * dot(d, d) * 1.6;
   c = agxEotf(agxLook(agx(c)));
@@ -223,6 +228,7 @@ export class Post {
       uFlashExposure: opts.flashExposure ?? 0,
       uManualExposure: opts.manualExposure ?? 0,
       uFade: opts.fade ?? 1,
+      uNight: opts.night ?? 0,
     }, null);
   }
 }

@@ -49,6 +49,28 @@ followed by AgX tone mapping, an energy-conserving bloom and film grain.
 Rain and thunder are recordings. The film's soundtrack is rendered by the same engine in an
 `OfflineAudioContext`.
 
+## How it was checked
+
+Every visual decision was compared against real photographs, side by side (`tools/compare.mjs`).
+The references were the NOAA Beaufort-scale series, open-ocean, overcast, rain-squall and storm
+photography. The measurable parts are checked with tools:
+
+| Quantity | Target | Result |
+| --- | --- | --- |
+| Significant wave height, Bf 5 / 7 / 9 (`tools/hscheck.mjs`) | 2–2.5 / 4–5.5 / 7–10 m | 2.1 / 4.8 / 9.2 m |
+| GPU height variance vs. spectrum integral | equal | within sampling error (±10%) |
+| Whitecap coverage at 8.5 / 15 / 21 m/s (`tools/foam.mjs`) | ~1.5–2× Monahan (visible residual foam included) | 0.8 / 6.5 / 19.7 % |
+| Thunder delay | distance / 343 m/s | exact |
+| Visibility in the heaviest rain (Koschmieder, 3.9 / β) | ~2–3 km | 3.0 km |
+
+Problems found and fixed this way included:
+- Sun glitter rendered as a milky sheet instead of sparkles.
+- Whitecaps missing at Bf 5.
+- Overcast decks without texture (a flat base and too little thickness variation).
+- A brown cast from sunlit haze under a storm deck.
+- Hairline crest artifacts from mirrored downward reflections.
+- Foam outlines with polygonal edges from thresholding a bilinear field.
+
 ## Controls
 
 | | |

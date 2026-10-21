@@ -11,17 +11,31 @@ uniform vec3 uCamPos;
 uniform sampler2D uClouds;   // rgb: in-scattered radiance, a: transmittance
 uniform float uCloudsOn;
 uniform float uSunVis;
+uniform float uIsMoon;
+uniform float uPixelAngle;
+uniform float uTime;
 const float SUN_COS = 0.99998917; // cos(0.2666 deg)
+float mhash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float mnoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(mhash(i), mhash(i + vec2(1, 0)), f.x), mix(mhash(i + vec2(0, 1)), mhash(i + vec2(1, 1)), f.x), f.y); }
 void main() {
   vec4 ndc = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
   vec4 w = uInvViewProj * ndc;
   vec3 d = normalize(w.xyz / w.w - uCamPos);
   vec3 col = skyRadiance(d);
+  col += starField(d, uPixelAngle, uTime);
   float c = dot(d, uSunDir);
   if (c > SUN_COS - 2e-5) {
     // sun disk with limb darkening (Neckel & Labs approximation)
     float mu = sqrt(max(0.0, 1.0 - (1.0 - c) / (1.0 - SUN_COS)));
     vec3 limb = pow(vec3(mu), vec3(0.397, 0.503, 0.652));
+    if (uIsMoon > 0.5) {
+      // the moon: no limb darkening, darker maria (albedo ~0.07 vs ~0.12 highlands)
+      vec3 t1 = normalize(cross(uSunDir, vec3(0.0, 1.0, 0.0)));
+      vec2 q = vec2(dot(d - uSunDir, t1), dot(d - uSunDir, cross(t1, uSunDir))) / 0.00465;
+      float maria = mnoise(q * 2.2 + 3.1) * 0.6 + mnoise(q * 5.0) * 0.3 + mnoise(q * 11.0) * 0.1;
+      limb = vec3(mix(1.15, 0.62, smoothstep(0.45, 0.62, maria)));
+    }
     float edge = smoothstep(SUN_COS - 2e-5, SUN_COS + 2e-5, c);
     col += sunIlluminance() * uSunVis / 6.8e-5 * limb * edge * 1.0;
   }
