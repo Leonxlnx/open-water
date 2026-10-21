@@ -53,6 +53,7 @@ uniform float uSize[4];
 uniform float uTexel[4];
 uniform sampler2D uEnv;          // reflection environment (equirect, mips = roughness)
 uniform float uUnresolved;       // unresolved mean square slope (Cox-Munk remainder)
+uniform float uMssTotal;         // total mean square slope of the surface (Cox-Munk)
 uniform float uHs;
 uniform vec3 uRrs;               // water-leaving remote sensing reflectance (1/sr)
 uniform vec3 uSSS;               // crest scatter colour * strength
@@ -163,7 +164,7 @@ void main() {
   s += rr.xy;
   // unresolved capillary roughness: sparkles near the camera, smooth BRDF lobe far away
   float unres = uUnresolved * 0.5 * mix(0.35, 1.0, smoothstep(4.0, 400.0, dist)) * sm * sm;
-  vec2 sigmaSq = var + vec2(unres) + vec2(rr.z);
+  vec2 sigmaSq = var + vec2(unres);
   sigmaSq = max(sigmaSq, vec2(2e-5));
 
   vec3 N = normalize(vec3(-s.x, 1.0, -s.y));
@@ -171,7 +172,9 @@ void main() {
   // footprint becomes extra slope variance, so sub-pixel ripples don't alias into hairlines
   vec3 dNx = dFdx(N), dNy = dFdy(N);
   float kv = min(0.5 * (dot(dNx, dNx) + dot(dNy, dNy)), 0.08);
-  sigmaSq += vec2(kv);
+  // the footprint cannot hold more slope variance than the whole surface has (Cox-Munk): beyond that
+  // the glitter path would stop narrowing toward the horizon. Rain roughness comes on top.
+  sigmaSq = min(sigmaSq + vec2(kv), vec2(0.5 * uMssTotal + 0.002)) + vec2(rr.z);
   vec3 Ty = normalize(cross(N, vec3(1.0, 0.0, 0.0)));
   vec3 Tx = cross(Ty, N);
 
@@ -251,7 +254,7 @@ void main() {
   aerial(dir, dist * 0.001, aL, aT);
   col = col * aT + aL;
   // light shafts through cloud gaps in the haze between the camera and this point
-  col = max(col + shafts(uCamPos, -V, dist), vec3(0.0));
+  col = max(col + shafts(uCamPos, -V, dist), col * 0.2);
   // rain / mist fog
   col = applyFog(col, -V, dist);
   oColor = vec4(col, 1.0);

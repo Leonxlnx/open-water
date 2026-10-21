@@ -84,7 +84,8 @@ void main() {
   oColor = vec4(L * a, a);
 }`;
 
-// Splash jets: the crown + Worthington column of an impact, a few cm tall, ~0.15 s.
+// Splashes: the crown of an impact, a few mm tall and ~50 ms long; only the largest drops throw a
+// Worthington jet of 2-4 cm.
 const SPLASH_VS = `
 layout(location = 0) in vec4 aSeed;
 uniform mat4 uViewProj;
@@ -97,6 +98,7 @@ uniform float uSize[4];
 uniform float uPixelAngle;
 centroid out vec2 vUv;
 out float vAlpha;
+out float vJet;
 float h1(float n) { return fract(sin(n) * 43758.5453); }
 void main() {
   if (aSeed.w > uCount) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); return; }
@@ -104,7 +106,7 @@ void main() {
   float tt = uTime / period + aSeed.x * 17.0;
   float cyc = floor(tt);
   float ph = fract(tt);
-  float life = 0.45;
+  float life = 0.05 / period;   // ~50 ms of the cycle
   // new random spot each cycle, uniformly over a disc around the camera
   // world-anchored spots, wrapped into a square around the camera
   vec2 o = (vec2(h1(cyc * 1.7 + aSeed.y * 91.0), h1(cyc * 3.1 + aSeed.x * 57.0)) * 2.0 - 1.0) * uRadius;
@@ -112,34 +114,47 @@ void main() {
   vec3 D = textureLod(uDisp[0], xz / uSize[0], 2.0).xyz + textureLod(uDisp[1], xz / uSize[1], 2.0).xyz + textureLod(uDisp[2], xz / uSize[2], 1.0).xyz;
   vec3 base = vec3(xz.x + D.x, D.y, xz.y + D.z);
   float t = ph / life;
-  float height = 0.012 + 0.05 * aSeed.z;   // jet height (m)
+  float q = aSeed.z;
+  bool big = q > 0.95;
+  float height = big ? mix(0.02, 0.04, (q - 0.95) * 20.0) : mix(0.003, 0.01, q / 0.95);
   float jet = sin(min(t, 1.0) * 3.14159) * height;
+  vJet = big ? 1.0 : 0.0;
   vec3 toCam = uCamPos - base;
   float dist = length(toCam);
   vec3 side = normalize(cross(vec3(0.0, 1.0, 0.0), toCam));
-  float w = max(0.004 + 0.004 * aSeed.z, dist * uPixelAngle * 1.2);
+  // crown ~6-12 mm across; a jet is a thin column
+  float wPhys = big ? 0.004 : 0.006 + 0.006 * q;
+  float w = max(wPhys, dist * uPixelAngle * 1.2);
   vec2 corner = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));
-  vec3 pos = base + side * (corner.x - 0.5) * w + vec3(0.0, corner.y * max(jet, 0.002) + 0.004, 0.0);
+  vec3 pos = base + side * (corner.x - 0.5) * w + vec3(0.0, corner.y * max(jet, 0.0015), 0.0);
   vUv = corner;
-  vAlpha = (t < 1.0 ? 1.0 : 0.0) * (1.0 - smoothstep(uRadius * 0.6, uRadius, dist)) * min(0.008 / w, 1.0);
+  // further out the specks are sub-pixel: they fade into the surface roughness (no hard band)
+  vAlpha = (t < 1.0 ? 1.0 : 0.0) * (1.0 - smoothstep(uRadius * 0.3, uRadius, dist)) * min(wPhys / w, 1.0);
   gl_Position = uViewProj * vec4(pos, 1.0);
 }`;
 
 const SPLASH_FS = SKY_LOOKUP_GLSL + `
 centroid in vec2 vUv;
 in float vAlpha;
+in float vJet;
 out vec4 oColor;
 uniform vec3 uFlash;
 uniform float uGain;
 void main() {
-  float across = clamp(1.0 - abs(vUv.x * 2.0 - 1.0), 0.0, 1.0);
-  vec3 L = (skyIrradiance() + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0)) * 0.35 + uFlash * 0.2;
-  float a = clamp(vAlpha * across * smoothstep(0.0, 0.3, clamp(vUv.y, 0.0, 1.0)) * uGain, 0.0, 1.0);
+  float x = vUv.x * 2.0 - 1.0, y = clamp(vUv.y, 0.0, 1.0);
+  // crown: two thin walls with beads at the rim; jet: a column with a drop on top
+  float walls = exp(-pow((abs(x) - 0.6) / 0.22, 2.0)) * smoothstep(0.0, 0.35, y) * (1.0 - smoothstep(0.55, 0.9, y));
+  float beads = exp(-pow((y - 0.85) / 0.12, 2.0)) * (exp(-pow((abs(x) - 0.65) / 0.16, 2.0)) + 0.7 * exp(-x * x / 0.03));
+  float column = exp(-x * x / 0.12) * (smoothstep(0.0, 0.2, y) * (1.0 - smoothstep(0.7, 0.85, y)) + exp(-pow((y - 0.92) / 0.07, 2.0)));
+  float shape = mix(max(walls, beads), column, vJet);
+  // a thin water sheet: translucent, showing the sky above it
+  vec3 L = skyIrradiance() * (0.7 / 3.14159) + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0) * 0.15 + uFlash * 0.2;
+  float a = clamp(vAlpha * shape * uGain, 0.0, 0.65);
   oColor = vec4(L * a, a);
 }`;
 
 export class Rain {
-  constructor(gl, { drops = 120000, splashes = 15300 } = {}) {
+  constructor(gl, { drops = 120000, splashes = 40000 } = {}) {
     this.gl = gl;
     this.drops = drops;
     this.splashes = splashes;
@@ -179,9 +194,9 @@ export class Rain {
     gl.depthMask(false);
     // splashes first (on the surface), then streaks
     this.pSplash.use({
-      ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uTime: u.time, uRadius: 22,
+      ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uTime: u.time, uRadius: 16,
       uCount: Math.min(u.rain * 1.3, 1), uDisp: u.disp, uSize: u.sizes, uPixelAngle: u.pixelAngle,
-      uFlash: u.flash, uGain: 1.6,
+      uFlash: u.flash, uGain: 2.4,
     });
     gl.bindVertexArray(this.vaoSplash);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.splashes);

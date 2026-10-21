@@ -34,6 +34,22 @@ vec2 rippleLayer(vec2 xz, float t, float cell, float life, float rain, float see
   }
   return slope;
 }
+// Impact craters: a dimple ~1 cm wide at every drop impact, relaxing within ~60 ms. One jittered
+// impact per cell and cycle (radius << cell: no neighbour search).
+vec2 craterLayer(vec2 xz, float t, float cell, float life, float rain, float seed) {
+  vec2 p = xz / cell + seed;
+  vec2 id = floor(p);
+  vec3 h = rhash3(id + seed * 3.1);
+  float period = life * (1.0 + h.z);
+  float tt = t / period + h.x * 11.3;
+  float tl = fract(tt) * period;
+  vec3 h2 = rhash3(id + floor(tt) * 0.731 + seed);
+  if (h2.z > rain) return vec2(0.0);
+  vec2 d = (p - id - (0.15 + 0.7 * h2.xy)) * cell;
+  float sig = 0.004 + 0.006 * h.y * h.y;
+  float A = 1.1 * exp(-tl / 0.06);
+  return A * 2.0 * d / sig * exp(-dot(d, d) / (sig * sig));
+}
 vec3 rainRipples(vec2 xz, float t, float rain, float dist) {
   if (rain < 0.002) return vec3(0.0);
   float near = 1.0 - smoothstep(6.0, 28.0, dist);
@@ -44,9 +60,17 @@ vec3 rainRipples(vec2 xz, float t, float rain, float dist) {
     s += rippleLayer(xz, t + 0.31, 0.17, 0.5, density * 0.9, 3.7);
     s += rippleLayer(xz, t + 0.73, 0.27, 0.65, density * 0.8, 9.1);
     s *= near;
+    // ~2600 impacts per m2 and second at the heaviest rate; resolved only within a few metres
+    float cr = 1.0 - smoothstep(3.0, 8.0, dist);
+    if (cr > 0.0) {
+      // two layers on rotated, differently sized grids: no visible lattice
+      const mat2 R1 = mat2(0.934, 0.358, -0.358, 0.934), R2 = mat2(0.799, -0.602, 0.602, 0.799);
+      s += (R1 * craterLayer(transpose(R1) * xz, t, 0.043, 0.25, density * 0.8, 1.3)
+          + R2 * craterLayer(transpose(R2) * xz, t + 0.11, 0.061, 0.3, density * 0.8, 5.9)) * cr;
+    }
   }
   // sub-pixel ring energy -> isotropic roughness (per-axis slope variance)
-  float rough = rain * 0.012 * (1.0 - near * 0.7);
+  float rough = rain * 0.016 * (1.0 - near * 0.6);
   return vec3(s, rough);
 }
 `;

@@ -127,10 +127,19 @@ float maxCoverage() { return uFront.w > 0.0 ? max(uCoverage, uStormA.x) : uCover
 // h: sample height. High up, the storm's anvil spreads ahead of the line (~3.5 km).
 vec4 regime(vec2 xz, float h, out float base, out float top) {
   float anvil = smoothstep(uStormTop * 0.62, uStormTop * 0.86, h) * 3500.0;
-  float m = uFront.w > 0.0 ? smoothstep(-uFront.w, uFront.w, frontDist(xz) + anvil) : 0.0;
+  float m = 0.0;
+  if (uFront.w > 0.0) {
+    // the storm's face bulges forward and recedes by kilometres: convective towers, not a wall
+    vec3 bp = vec3(xz.x + uWindOffset.x, h * 1.3, xz.y + uWindOffset.z) / 8500.0 + 0.77;
+    vec4 bn = textureLod(uShape, bp, 2.0);
+    vec4 bf = textureLod(uShape, bp * 3.1 + 0.29, 2.0);
+    float bulge = ((bn.r * 0.7 + bn.g * 0.3 - 0.5) * 8000.0 + (bf.r - 0.5) * 1800.0) * smoothstep(300.0, 2500.0, h);
+    m = smoothstep(-uFront.w, uFront.w, frontDist(xz) + anvil + bulge);
+  }
   base = mix(uBase, uStormA.w, m);
   top = mix(uTop, uStormTop, m);
-  return vec4(mix(uCoverage, uStormA.x, m), mix(uDark, uStormA.y, m), mix(uDensity, uStormA.z, m), m);
+  // the storm's coverage closes over the outer half of the ramp: its face has no see-through gaps
+  return vec4(mix(uCoverage, uStormA.x, smoothstep(0.0, 0.55, m)), mix(uDark, uStormA.y, m), mix(uDensity, uStormA.z, m), m);
 }
 
 // Shelf cloud (arcus): a low wedge along the gust front ahead of the rain. Its nose hangs lowest
@@ -217,6 +226,22 @@ float cloudDensity(vec3 p, float h, bool detail) {
   return cloudDensityR(p, h, detail, R, base, top);
 }
 
+// Fraction of the haze path (camera to distance md along rd) that is sunlit when a storm stands
+// between the path and the sun: the storm's shadow reaches uStormTop / tan(elevation) ahead of the
+// line, scaled by how much the sun stands behind the line. Skylight still scatters in the shadow.
+float stormHazeLit(vec3 cam, vec3 rd, float md) {
+  if (uFront.w <= 0.0 || uStormA.y < 0.5) return 1.0;
+  vec2 sh = uSunDir.xz / max(length(uSunDir.xz), 1e-3);
+  float tanE = max(uSunDir.y, 0.02) / max(length(uSunDir.xz), 1e-3);
+  float reach = uStormTop / tanE * max(dot(sh, uFront.xy), 0.0);
+  float fd0 = frontDist(cam.xz);
+  float rate = dot(rd.xz, uFront.xy);
+  // distance along the ray at which it enters the shadow (or never)
+  float sEdge = fd0 >= -reach ? 0.0 : (rate > 1e-4 ? (-reach - fd0) / rate : 1e9);
+  // the first 12 km are handled by the shadow-mapped crepuscular term (shafts) in the composite
+  float lit = 1.0 - max(md - max(sEdge, 12000.0), 0.0) / max(md, 1.0);
+  return mix(0.25, 1.0, lit);
+}
 float hg(float c, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
 
 vec2 shellHits(vec3 ro, vec3 rd, float R) {
@@ -231,7 +256,7 @@ vec2 shellHits(vec3 ro, vec3 rd, float R) {
 float heightOf(vec3 p) { return length(p + vec3(0.0, RG_M, 0.0)) - RG_M; }
 
 // returns rgb in-scattered radiance (sun illuminance = 1 units), a = transmittance; also mean distance
-vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, float jitter, vec3 sunE, vec3 ambTop, vec3 ambBot, out float meanDist) {
+vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, float jitter, vec3 sunE, vec3 ambTop, vec3 ambBot, vec3 ambFace, out float meanDist) {
   meanDist = 0.0;
   if (maxCoverage() < 0.01) return vec4(0.0, 0.0, 0.0, 1.0);
   float sB = shellBase(), sT = shellTop();
@@ -308,8 +333,8 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       }
       // still inside a deck after 2.6 km: extrapolate the rest of the column with the mean density
       if (!exited && marched > 0.0) {
-        float rest = clamp((top - heightOf(lp)) / max(uSunDir.y, 0.05), 0.0, 12000.0);
-        tau += tau / marched * rest * 0.6;
+        float rest = clamp((top - heightOf(lp)) / max(uSunDir.y, 0.05), 0.0, 60000.0);
+        tau += tau / marched * rest;
       }
       // scud sits under the deck: sunlight must cross the whole layer above it
       if (h < base) tau += R.z * (top - base) * 0.25 / max(uSunDir.y, 0.1);
@@ -337,12 +362,17 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       float diffUp = 1.0 / (1.0 + 0.11 * tauUp);
       // multiply scattered sunlight fills thick clouds with near-isotropic light, L ~ E T_diff / pi;
       // it dominates their shaded interiors (grey-white), not the blue skylight
-      float diffuse = diffSun * 0.3 * (1.0 - exp(-0.15 * tau));
+      // (a deck is a slab lit from above: E mu0 T_d / pi; an isolated cumulus is lit on its sunward side)
+      float slab = smoothstep(0.75, 0.95, R.x);
+      float diffuse = diffSun * mix(0.3, max(uSunDir.y, 0.0) / 3.14159, slab) * (1.0 - exp(-0.15 * tau));
       // the diffused light carries the colour of the whole illumination at the cloud top: sun + skylight
       // diffused deck light mixes sun and blue skylight: neutral-cool (~6500 K) at the sun's luminance
       vec3 diffCol = dot(sunE, vec3(0.2126, 0.7152, 0.0722)) * vec3(0.93, 1.0, 1.09);
       vec3 sun = sunE * ms * mix(1.0, powder, 0.55 * (1.0 - max(cosT, 0.0))) + diffCol * diffuse;
       vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 2.0;
+      // the face toward the camera reflects the sky/sea light behind the camera where the column
+      // above no longer lets skylight through
+      amb += ambFace * (1.0 - diffUp);
       if (h < base) amb *= 0.5; // scud: self-shadowed fragments read darker than the deck
       vec3 S = (sun + amb) * sigma;
       if (uFlash.w > 0.0) {
@@ -403,12 +433,14 @@ void main() {
   vec3 ambTop = (zen * 0.55 + hor * 0.45) * uAmbTop;
   vec3 ambBot = (sunTransmittanceAt(0.0, uSunDir.y) * max(uSunDir.y, 0.0) + zen * 3.14159) * 0.06 / 3.14159 * uAmbBot;
   float md;
-  vec4 c = marchClouds(uCamPos, rd, uSteps, uLightSteps, uLightDetail, j, sunE, ambTop, ambBot, md);
+  // light of the sky and sea behind the camera (mean radiance of the actual, clouded sky)
+  vec3 ambFace = skyIrradiance() / 3.14159 * 0.45 * uAmbTop;
+  vec4 c = marchClouds(uCamPos, rd, uSteps, uLightSteps, uLightDetail, j, sunE, ambTop, ambBot, ambFace, md);
   // aerial perspective toward the cloud
   if (c.a < 0.999) {
     vec3 aL, aT;
     aerial(rd, md * 0.001, aL, aT);
-    vec3 sky = skyRadiance(rd);
+    aL *= stormHazeLit(uCamPos, rd, md);
     c.rgb = c.rgb * aT + aL * (1.0 - c.a) * 0.9;
   }
   // temporal accumulation (a checkerboarded pixel is refreshed every 4th frame: blend harder)
@@ -438,10 +470,13 @@ void main() {
   vec3 ambTop = (zen * 0.55 + hor * 0.45) * uAmbTop;
   vec3 ambBot = (sunTransmittanceAt(0.0, uSunDir.y) * max(uSunDir.y, 0.0) + zen * 3.14159) * 0.06 / 3.14159 * uAmbBot;
   float md;
-  vec4 c = marchClouds(uCamPos, rd, 36, 3, 0, j, sunE, ambTop, ambBot, md);
+  // light of the sky and sea behind the camera (mean radiance of the actual, clouded sky)
+  vec3 ambFace = skyIrradiance() / 3.14159 * 0.45 * uAmbTop;
+  vec4 c = marchClouds(uCamPos, rd, 36, 3, 0, j, sunE, ambTop, ambBot, ambFace, md);
   if (c.a < 0.999) {
     vec3 aL, aT;
     aerial(rd, md * 0.001, aL, aT);
+    aL *= stormHazeLit(uCamPos, rd, md);
     c.rgb = c.rgb * aT + aL * (1.0 - c.a) * 0.9;
   }
   vec4 h = texture(uHistory, vUv);

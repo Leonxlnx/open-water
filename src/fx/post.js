@@ -38,12 +38,13 @@ out vec4 o;
 uniform sampler2D uSrc;
 uniform vec2 uTexel;
 uniform float uRadius;
+uniform float uWeight;
 void main() {
   vec2 t = uTexel * uRadius;
   vec3 c = texture(uSrc, vUv).rgb * 4.0;
   c += (texture(uSrc, vUv + vec2(-t.x, 0)).rgb + texture(uSrc, vUv + vec2(t.x, 0)).rgb + texture(uSrc, vUv + vec2(0, -t.y)).rgb + texture(uSrc, vUv + vec2(0, t.y)).rgb) * 2.0;
   c += texture(uSrc, vUv + vec2(-t.x, -t.y)).rgb + texture(uSrc, vUv + vec2(t.x, -t.y)).rgb + texture(uSrc, vUv + vec2(-t.x, t.y)).rgb + texture(uSrc, vUv + vec2(t.x, t.y)).rgb;
-  o = vec4(c / 16.0, 1.0);
+  o = vec4(c / 16.0 * uWeight, 1.0);
 }`;
 
 const LUM_FS = `
@@ -79,7 +80,8 @@ void main() {
   float target = exp(mix(scene, log(max(grey, 1e-6)), uIncident));
   // white balance (von Kries, partial): neutralise part of the illuminant's colour cast
   float Ey = max(dot(E, vec3(0.2126, 0.7152, 0.0722)), 1e-6);
-  vec3 wb = clamp(pow(Ey / max(E, vec3(1e-6)), vec3(uWhiteBalance)), vec3(0.6), vec3(1.7));
+  // (a camera's AWB moves along the daylight locus by a limited amount: ~5000-7500 K)
+  vec3 wb = clamp(pow(Ey / max(E, vec3(1e-6)), vec3(uWhiteBalance)), vec3(0.82), vec3(1.22));
   wb /= dot(wb, vec3(0.2126, 0.7152, 0.0722));
   vec4 prevT = texelFetch(uPrev, ivec2(0), 0);
   float prev = prevT.r;
@@ -209,7 +211,8 @@ export class Post {
     gl.blendFunc(gl.ONE, gl.ONE);
     for (let i = this.levels.length - 1; i > 0; i--) {
       const from = this.levels[i].tex;
-      fullscreen(gl, this.pUp, { uSrc: from, uTexel: [1 / from.w, 1 / from.h], uRadius: 1.0 }, this.levels[i - 1].target);
+      // geometric level weights (2^-1.5 per level): a lens PSF with a tight core and a faint wide skirt
+      fullscreen(gl, this.pUp, { uSrc: from, uTexel: [1 / from.w, 1 / from.h], uRadius: 1.0, uWeight: 0.354 }, this.levels[i - 1].target);
     }
     gl.disable(gl.BLEND);
     // normalise accumulated bloom: sum of levels -> average
@@ -227,7 +230,7 @@ export class Post {
       uHdr: hdr,
       uBloom: this.levels[0].tex,
       uAdapt: this.adapt[this.adaptCur],
-      uBloomStrength: (opts.bloom ?? 0.04) / this.levels.length,
+      uBloomStrength: (opts.bloom ?? 0.04),
       uExposureBias: opts.exposureBias ?? 0,
       uMinLum: opts.minLum ?? 0.0003,
       uMaxLum: opts.maxLum ?? 10,

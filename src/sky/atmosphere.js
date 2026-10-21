@@ -372,14 +372,14 @@ uniform float uFogDensity;
 uniform float uFogTop;
 uniform vec3 uFlashFog;   // lightning light scattered by rain and mist
 uniform vec3 uFlashDir;   // direction to the current lightning strike
-vec3 fogRadiance(vec3 dir) {
+vec3 fogRadiance(vec3 dir, float sunFrac) {
   float c = dot(dir, uSunDir);
   float g = 0.7;
   float ph = (1.0 - g * g) / (4.0 * 3.14159 * pow(1.0 + g * g - 2.0 * g * c, 1.5));
   // thick haze in a hemisphere-lit field: in-scatter -> albedo * E / (2 pi) (sky above, dark sea below)
   // lightning light scattered by rain and mist is concentrated towards the strike
   float fl = 0.2 + 2.2 * pow(max(dot(dir, uFlashDir), 0.0), 8.0);
-  return skyIrradiance() * (0.92 / (2.0 * 3.14159)) + sunIlluminance() * uHazeSun * ph * 0.92 + uFlashFog * fl;
+  return skyIrradiance() * (0.92 / (2.0 * 3.14159)) + sunIlluminance() * sunFrac * ph * 0.92 + uFlashFog * fl;
 }
 float fogPathLength(vec3 dir, float dist) {
   // the veil only exists below the cloud base
@@ -472,6 +472,8 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     stormFrac *= 0.72 + 0.5 * streak;
   }
   float T = exp(-tau);
-  return mix(fogRadiance(dir) * mix(1.0, uFogStorm.y, clamp(stormFrac, 0.0, 1.0)), col, T);
+  // the storm's rain curtains stand in the storm's shadow: no direct sun, darker diffuse light
+  float sf = clamp(stormFrac, 0.0, 1.0);
+  return mix(mix(fogRadiance(dir, uHazeSun), fogRadiance(dir, 0.0) * uFogStorm.y, sf), col, T);
 }
 `;

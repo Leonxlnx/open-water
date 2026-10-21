@@ -40,17 +40,21 @@ void main() {
   vec3 vel = vec3(uWind.x, 0.0, uWind.y) * (0.45 + 0.25 * aSeed.y);
   // ballistic rise and settle, slowed by drag
   vec3 pos = start + vel * T + vec3(0.0, (1.2 + 2.0 * aSeed.z) * T - 1.6 * T * T, 0.0);
-  float size = mix(0.4, 3.2 + 2.0 * aSeed.y, sqrt(age));
+  float size = mix(0.3, 1.6 + 1.2 * aSeed.y, sqrt(age));
   vec3 toCam = uCamPos - pos;
   float dist = length(toCam);
+  vec3 vdir = toCam / max(dist, 1e-3);
   vec3 right = normalize(cross(vec3(0.0, 1.0, 0.0), toCam));
-  vec3 up = normalize(cross(toCam, right));
   vec2 c = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1)) - 0.5;
   vec3 wdir = normalize(vec3(uWind.x, 0.0, uWind.y) + 1e-4);
-  // stretched along the wind
-  vec3 P = pos + right * c.x * size * 1.6 + up * c.y * size * 0.7;
+  // a sheet drawn out along the wind: the wind direction projected into the view plane
+  vec3 along = wdir - vdir * dot(wdir, vdir);
+  float al = length(along);
+  along = al > 0.2 ? along / al : right;
+  vec3 up = normalize(cross(vdir, along));
+  vec3 P = pos + along * c.x * size * 3.5 + up * c.y * size * 0.45;
   vUv = c + 0.5;
-  vAlpha = alive * sin(3.14159 * age) * (1.0 - smoothstep(uRadius * 0.6, uRadius, dist));
+  vAlpha = alive * sin(3.14159 * age) * (1.0 - smoothstep(uRadius * 0.6, uRadius, dist)) * smoothstep(8.0, 25.0, dist);
   vDist = dist;
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
@@ -67,8 +71,9 @@ float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
 void main() {
   vec2 q = vUv * 2.0 - 1.0;
   float r = dot(q, q);
-  float n = vn(vUv * 6.0) * 0.6 + vn(vUv * 13.0) * 0.4;
-  float a = exp(-r * 2.6) * smoothstep(0.25, 0.8, n) * vAlpha * 0.32;
+  // streaky along the sheet (u runs along the wind)
+  float n = vn(vec2(vUv.x * 2.5, vUv.y * 11.0)) * 0.6 + vn(vec2(vUv.x * 5.0, vUv.y * 27.0) + 3.1) * 0.4;
+  float a = exp(-r * 2.2) * smoothstep(0.35, 0.85, n) * vAlpha * 0.28;
   // fine droplets scatter skylight and sun (forward-scattering, like mist)
   vec3 L = skyIrradiance() * (0.9 / 3.14159) + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0) * 0.35 + uFlash * 0.3;
   oColor = vec4(L * a, a);

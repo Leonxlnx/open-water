@@ -50,7 +50,8 @@ void main() {
     col = skyRadiance(d) * cl.a + sunPart * cl.a * cl.a * cl.a + cl.rgb;
   }
   // rain/mist veil towards the horizon
-  col = max(col + shafts(uCamPos, d, 1e9), vec3(0.0));
+  // shadowed haze can only remove the sunlight it scattered: never below a fraction of the scene
+  col = max(col + shafts(uCamPos, d, 1e9), col * 0.2);
   col = applyFog(col, d, 1e9);
   o = vec4(col, 1.0);
 }`;
