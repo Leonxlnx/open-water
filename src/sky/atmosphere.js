@@ -457,6 +457,7 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     tau += uSprayHaze.x * max(I, 0.0);
   }
   float stormFrac = 0.0;
+  float tcurtain = 0.0;
   if (uFogFront.w > 0.0) {
     vec2 n = uFogFront.xy;
     float w = uFogFront.w;
@@ -468,9 +469,10 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     float m = abs(a) < 1e-5 ? clamp((s0 + w) / (2.0 * w), 0.0, 1.0) * L : (rampInt(s0 + a * L, w) - rampInt(s0, w)) / a;
     // rain shafts: curtain density varies along the front where the ray crosses it
     float tc = abs(a) > 1e-5 ? -s0 / a : 0.0;
-    vec2 xc = uFogCam + dir.xz * max(tc, 0.0);
+    // (inside the storm: the shafts around the camera)
+    vec2 xc = uFogCam + dir.xz * (tc > 0.0 ? tc : min(L, 2500.0));
     float along = dot(xc, vec2(-n.y, n.x));
-    float shafts = 0.55 + 0.9 * fogNoise(along / 1700.0) * (0.6 + 0.4 * fogNoise(along / 430.0 + 7.0));
+    float shafts = 0.12 + 1.75 * fogNoise(along / 1700.0) * (0.6 + 0.4 * fogNoise(along / 430.0 + 7.0));
     // curtains fade out into the cloud base instead of ending at a ruler-straight line
     float hcr = max(dir.y * max(tc, 0.0), 0.0);
     float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.35 * uFogTop, uFogTop, hcr));
@@ -480,9 +482,12 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     float hc = max(dir.y * max(tc, 0.0), 0.0);
     // fine streaks only up close; far curtains read as soft shafts (the fine detail is sub-pixel there)
     float near = 1.0 - smoothstep(3000.0, 12000.0, max(tc, 0.0));
-    float streak = fogNoise(along / 900.0 + hc / 1400.0) * 0.6 + near * (fogNoise(along / 260.0 + hc / 500.0 + 3.0) * 0.28 + fogNoise(along / 85.0 + hc / 180.0 + 9.0) * 0.12) + (1.0 - near) * 0.2;
+    // domain-warped, multi-octave: no evenly spaced stripes
+    float a2 = along / 1700.0 + 0.6 * fogNoise(along / 600.0);
+    float streak = (fogNoise(a2 * 1.9 + hc / 1400.0) * 0.5 + fogNoise(a2 * 4.1 + hc / 900.0 + 3.3) * 0.3 + fogNoise(a2 * 8.7 + 5.1) * 0.2) * 0.6 + near * (fogNoise(along / 260.0 + hc / 500.0 + 3.0) * 0.28 + fogNoise(along / 85.0 + hc / 180.0 + 9.0) * 0.12) + (1.0 - near) * 0.2;
     // (far curtains: the streaks merge; only the broad shafts remain)
-    stormFrac *= mix(0.88 + 0.2 * streak, 0.72 + 0.5 * streak, near);
+    stormFrac *= mix(0.92 + 0.16 * streak, 0.72 + 0.5 * streak, near);
+    tcurtain = max(tc, 0.0);
   }
   float T = exp(-tau);
   // the storm's rain curtains stand in the storm's shadow: no direct sun, darker diffuse light
@@ -490,7 +495,14 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
   float behind = uFogFront.w > 0.0 ? smoothstep(-0.2, 0.3, -dot(normalize(uSunDir.xz + 1e-5), uFogFront.xy)) : 0.0;
   // (sunlit rain is a neutral grey-white: large drops scatter all wavelengths alike)
   vec3 lit = vec3(dot(fogRadiance(dir, 0.6), vec3(0.2126, 0.7152, 0.0722))) * vec3(0.95, 0.98, 1.03) * 0.55;
-  vec3 curtain = mix(fogRadiance(dir, 0.0) * uFogStorm.y, lit, behind);
+  vec3 shade = vec3(dot(fogRadiance(dir, 0.0), vec3(0.2126, 0.7152, 0.0722))) * vec3(0.92, 0.98, 1.06) * uFogStorm.y;
+  vec3 curtain = mix(shade, lit, behind);
+  // the haze between the viewer and the curtain
+  if (sf > 0.0 && tcurtain > 0.0) {
+    vec3 aLc, aTc;
+    aerial(dir, min(tcurtain, L) * 1e-3, aLc, aTc);
+    curtain = curtain * aTc + aLc;
+  }
   return mix(mix(fogRadiance(dir, uHazeSun), curtain, sf), col, T);
 }
 `;

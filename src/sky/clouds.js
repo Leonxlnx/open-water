@@ -166,7 +166,7 @@ float shelfDensity(vec3 p, float h) {
   tiers *= smoothstep(0.2, 0.55, n.r * 0.55 + n2.r * 0.55);
   float nose = smoothstep(0.0, 0.05 + 0.08 * n.r, u);
   float body = smoothstep(0.0, 0.1, tz) * (1.0 - smoothstep(0.75, 1.0, tz));
-  return nose * body * tiers * smoothstep(0.3, 0.62, n.r * 0.75 + 0.4) * uStormA.z * 1.5;
+  return nose * body * tiers * smoothstep(0.3, 0.62, n.r * 0.75 + 0.4) * uStormA.z * 3.0;
 }
 
 float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top) {
@@ -179,8 +179,8 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     vec3 sp2 = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z) * 1.8) / vec3(1400.0, 500.0, 1400.0);
     vec4 n2 = textureLod(uShape, sp2, lodFor(1400.0 / 128.0));
     float frag = n2.r * 0.7 + n2.g * 0.3;
-    float d2 = smoothstep(0.8, 0.93, frag) * smoothstep(0.0, 0.35, sh) * (1.0 - smoothstep(0.55, 1.0, sh));
-    return d2 * R.z * 0.6 * (R.y - 0.5) * 2.0;
+    float d2 = smoothstep(0.68, 0.85, frag) * smoothstep(0.0, 0.35, sh) * (1.0 - smoothstep(0.55, 1.0, sh));
+    return d2 * R.z * (R.y - 0.5) * 2.0;
   }
   if (h > top) return shelf;
   float hf = (h - base) / (top - base);
@@ -202,7 +202,8 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   // vertical profile. Fair weather: cumulus towers with type-dependent tops.
   // Storm: a layer deck whose base undulates (rolls, scud) and whose thickness varies 2-3x,
   // which is what gives an overcast its mottled light and dark patches.
-  float baseFrac = mix(0.0, (wf - 0.45) * 0.14 + 0.03, dark);
+  // storm decks: a rolling, lumpy base
+  float baseFrac = mix(0.0, (wf - 0.45) * 0.3 + 0.04, dark);
   float topCu = mix(0.45, 1.0, wm.g);
   float cells = uFront.w > 0.0 ? smoothstep(0.35, 0.75, wm.b * 0.6 + sin(dot(p.xz, vec2(-uFront.y, uFront.x)) / 5200.0) * 0.25 + 0.3) : 0.0;
   float topSt = mix(0.18, 1.0, clamp(wm.b * 0.9 + n.r * 0.7 - 0.3 + cells * 0.6, 0.0, 1.0));
@@ -387,7 +388,8 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 0.6;
       // the face toward the camera reflects the sky/sea light behind the camera where the column
       // above no longer lets skylight through
-      amb += ambFace * (1.0 - diffUp) * smoothstep(0.5, 0.9, R.x);
+      // (a storm face: its shadowed sides fall to ~30% of the sunlit side)
+      amb += ambFace * (1.0 - diffUp) * smoothstep(0.5, 0.9, R.x) * mix(1.0, 0.55, R.w);
       if (h < base) amb *= 0.5; // scud: self-shadowed fragments read darker than the deck
       vec3 S = (sun + amb) * sigma;
       if (uFlash.w > 0.0) {
@@ -414,7 +416,9 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
 
 const SCREEN_FS = SKY_LOOKUP_GLSL + CLOUD_GLSL + `
 in vec2 vUv;
-out vec4 o;
+layout(location = 0) out vec4 o;
+layout(location = 1) out vec4 oD;   // mean distance of the cloud light (km)
+uniform sampler2D uHistoryD;
 uniform mat4 uInvViewProj;
 uniform mat4 uPrevViewProj;
 uniform vec3 uCamPos;
@@ -437,9 +441,10 @@ void main() {
   vec2 puv = prevClip.xy / prevClip.w * 0.5 + 0.5;
   bool valid = prevClip.w > 0.0 && all(greaterThanEqual(puv, vec2(0.0))) && all(lessThanEqual(puv, vec2(1.0))) && uBlend < 1.0;
   vec4 hist = valid ? texture(uHistory, puv) : vec4(0.0);
+  float histD = valid ? texture(uHistoryD, puv).r : 0.0;
   ivec2 ip = ivec2(gl_FragCoord.xy);
   int slot = (ip.x & 1) + 2 * (ip.y & 1);
-  if (uCheck == 1 && valid && uBlend < 0.5 && slot != (int(uFrame) & 3)) { o = hist; return; }
+  if (uCheck == 1 && valid && uBlend < 0.5 && slot != (int(uFrame) & 3)) { o = hist; oD = vec4(histD); return; }
   float j = fract(ign(gl_FragCoord.xy) + uFrame * 0.618034);
   float hKm = max(uBase, 0.0) * 0.001;
   vec3 sunE = sunTransmittanceAt(hKm + 0.5, uSunDir.y);
@@ -466,8 +471,14 @@ void main() {
     c.rgb = c.rgb * aT + aL * (1.0 - c.a) * 0.9;
   }
   // temporal accumulation (a checkerboarded pixel is refreshed every 4th frame: blend harder)
-  if (valid) c = mix(hist, c, uCheck == 1 ? min(uBlend * 2.5, 1.0) : uBlend);
+  float dk = md * 0.001;
+  if (valid) {
+    float bl = uCheck == 1 ? min(uBlend * 2.5, 1.0) : uBlend;
+    c = mix(hist, c, bl);
+    dk = mix(histD, dk, bl);
+  }
   o = c;
+  oD = vec4(dk);
 }`;
 
 const ENV_FS = SKY_LOOKUP_GLSL + CLOUD_GLSL + `
@@ -571,7 +582,8 @@ export class Clouds {
     if (this.targets) this.targets.forEach((t) => t.dispose(true));
     this.w = nw; this.h = nh;
     this.tex = [0, 1].map(() => new Texture(gl, { w: this.w, h: this.h, format: 'rgba16f' }));
-    this.targets = this.tex.map((t) => new Target(gl, [t]));
+    this.dtex = [0, 1].map(() => new Texture(gl, { w: this.w, h: this.h, format: 'r16f' }));
+    this.targets = this.tex.map((t, i) => new Target(gl, [t, this.dtex[i]]));
     this.cur = 0;
     this.reset = true;
   }
@@ -611,7 +623,7 @@ export class Clouds {
     fullscreen(gl, this.pScreen, {
       ...skyU, ...cu, ...amb,
       uInvViewProj: cam.inv, uPrevViewProj: this.prevVP || cam.vp, uCamPos: cam.pos,
-      uHistory: this.tex[this.cur], uFrame: this.frame % 64, uBlend: this.reset ? 1 : u.blend ?? 0.2,
+      uHistory: this.tex[this.cur], uHistoryD: this.dtex[this.cur], uFrame: this.frame % 64, uBlend: this.reset ? 1 : u.blend ?? 0.2,
       uPixelAngle: (cam.fov || 0.75) / this.h, uUpSteps: u.upSteps ?? 4, uSteps: u.steps ?? 64, uLightSteps: u.lightSteps ?? 6, uLightDetail: u.lightDetail ?? 3, uCheck: u.check ? 1 : 0,
     }, this.targets[next]);
     this.cur = next;
@@ -620,5 +632,6 @@ export class Clouds {
   }
 
   get screen() { return this.tex[this.cur]; }
+  get depth() { return this.dtex[this.cur]; }
   get env() { return this.envTex[this.envCur]; }
 }

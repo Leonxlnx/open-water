@@ -211,11 +211,11 @@ export class App {
     const stormFog = S.sMist * 1.2e-3 + S.sRain * 1.3e-3;
     const fogU = {
       uFogDensity: fogDensity, uFogTop: fOn ? (S.cloudBase + S.sBase) * 0.5 + 100 : S.cloudBase + 100,
-      uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0], uFogStorm: [stormFog, 0.32],
+      uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0], uFogStorm: [stormFog, night ? 0.65 : 0.5],
       uFogCam: [this.cam.pos[0], this.cam.pos[2]],
       uFlashFog: flashRGB.map((x) => x * 0.25), uFlashDir: flashDir,
       // spray haze from breaking crests: grows from a near gale (~14 m/s) upwards
-      uSprayHaze: [smoothstep(13, 26, S.wind) * 4.5e-4, Math.max(this.cam.pos[1], 0.5)],
+      uSprayHaze: [smoothstep(10, 24, S.wind) * 1.2e-3, Math.max(this.cam.pos[1], 0.5)],
     };
 
     // clouds advect with the wind aloft (~1.6x surface wind), detail evolves slowly
@@ -249,7 +249,7 @@ export class App {
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     gl.disable(gl.DEPTH_TEST);
-    this.sky.drawBackground({ ...skyU, ...fogU, uInvViewProj: M.inv, uCamPos: this.cam.pos, uClouds: this.clouds.screen, uCloudsOn: 1, uSunVis: 1,
+    this.sky.drawBackground({ ...skyU, ...fogU, uInvViewProj: M.inv, uCamPos: this.cam.pos, uClouds: this.clouds.screen, uCloudDepth: this.clouds.depth, uCloudsOn: 1, uSunVis: 1,
       uIsMoon: night ? 1 : 0, uPixelAngle: this.cam.fov / this.h, uTime: t });
 
     P.section('water');
@@ -287,7 +287,7 @@ export class App {
     }
     this.lightning.draw({ ...fxU, fogDensity: 0, transmit: this.boltT, base: fOn ? Math.min(S.cloudBase, S.sBase) : S.cloudBase });
     const windVec = [Math.cos(wd) * S.wind, Math.sin(wd) * S.wind];
-    this.spray.draw({ ...fxU, skyU, anchor: this.cam.base, time: t, wind: S.wind, windVec, disp: ot.disp.slice(0, 3), sizes: ot.sizes, flash: flashRGB });
+    this.spray.draw({ ...fxU, skyU, anchor: this.cam.base, time: t, wind: S.wind, windVec, disp: ot.disp.slice(0, 3), active: ot.active[1], sizes: ot.sizes, flash: flashRGB });
     this.rain.draw({
       ...fxU, skyU, rain: L.rain, time: t, exposure: 1 / 60,
       wind: [Math.cos(wd) * S.wind * 0.8, Math.sin(wd) * S.wind * 0.8],

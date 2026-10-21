@@ -94,7 +94,7 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   vec4 b = texture(uFoamTex, p / 1.9 + vec2(0.37, 0.71));
   vec4 s = texture(uFoamTex, vec2(p.x / 45.0, p.y / 15.0) + vec2(0.13, 0.5));
   // large-scale structure stretches along the wind as it strengthens (wind rows of foam)
-  vec4 big = texture(uFoamTex, vec2(p.x / (37.0 * (1.0 + 1.2 * uFoamStretch)), p.y / 37.0) + vec2(0.61, 0.27));
+  vec4 big = texture(uFoamTex, vec2(p.x / (37.0 * (1.0 + 5.0 * uFoamStretch)), p.y / 37.0) + vec2(0.61, 0.27));
   // a crest breaks in segments of a few metres, not along its whole length
   float seg = texture(uFoamTex, vec2(p.x / 3.5, p.y / 12.0) + vec2(0.43, 0.19)).r;
   // wind rows: bands ~60 m long and a few metres wide along the wind (Langmuir convergence lines)
@@ -126,7 +126,9 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   // crisp froth edges near, softening only as the structure becomes sub-pixel
   float edge = 0.035 + fwT * 0.6 + fwV * 0.4 + far * 0.2;
   // residual foam gathers into wind rows (streaks along the wind) as the gale strengthens
-  float Fs = F * mix(1.0, 0.35 + 1.4 * smoothstep(0.25, 0.75, wr), uFoamStretch);
+  // (ragged edges: the metre-scale structure frays the rows)
+  float wrr = wr + (a.r - 0.5) * 0.22 + (b.r - 0.5) * 0.12;
+  float Fs = F * mix(1.0, 0.2 + 1.6 * pow(smoothstep(0.2, 0.8, wrr), 2.0), uFoamStretch);
   // a bubble raft never fills its cells: the centres stay open, so old foam stays a network
   float mA = A * 1.08 - Pa, mR = Fs * 0.62 - Pr;
   float covA = smoothstep(-edge, edge, mA) * smoothstep(0.04, 0.15, A);

@@ -9,6 +9,7 @@ out vec4 o;
 uniform mat4 uInvViewProj;
 uniform vec3 uCamPos;
 uniform sampler2D uClouds;   // rgb: in-scattered radiance, a: transmittance
+uniform sampler2D uCloudDepth; // mean distance of the cloud light (km)
 uniform float uCloudsOn;
 uniform float uSunVis;
 uniform float uIsMoon;
@@ -52,11 +53,16 @@ void main() {
     float w0 = exp(-abs(t0.a - c0.a) * 8.0), w1 = exp(-abs(t1.a - c0.a) * 8.0), w2 = exp(-abs(t2.a - c0.a) * 8.0), w3 = exp(-abs(t3.a - c0.a) * 8.0);
     vec4 cl = (t0 * w0 + t1 * w1 + t2 * w2 + t3 * w3) / (w0 + w1 + w2 + w3);
     vec3 sunPart = col - skyRadiance(d);
-    col = skyRadiance(d) * cl.a + sunPart * cl.a * cl.a * cl.a + cl.rgb;
+    vec3 skyCol = skyRadiance(d) + sunPart * cl.a * cl.a;
+    // rain and mist lie in front of the clouds only up to the clouds' distance (single scattering:
+    // fog(x, s) = x T(s) + Lf (1 - T(s)), so cloud light and sky light are fogged separately)
+    float cmd = max(texture(uCloudDepth, vUv).r * 1000.0, 1.0);
+    vec3 Lm = applyFog(vec3(0.0), d, cmd);
+    col = cl.a * applyFog(skyCol, d, 1e9) + applyFog(cl.rgb, d, cmd) - cl.a * Lm;
+  } else {
+    col = applyFog(col, d, 1e9);
   }
-  // rain/mist veil towards the horizon
   col = withShafts(col, uCamPos, d, 1e9);
-  col = applyFog(col, d, 1e9);
   o = vec4(col, 1.0);
 }`;
 

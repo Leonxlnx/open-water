@@ -15,10 +15,12 @@ uniform float uRadius;
 uniform float uStrength;     // 0..1 with wind (gale and above)
 uniform vec2 uWind;          // m/s
 uniform sampler2D uDisp[3];
+uniform sampler2D uActive;      // active breaking (117 m cascade)
 uniform float uSize[4];
 centroid out vec2 vUv;
 out float vAlpha;
 out float vDist;
+out float vAlong;
 float h1(float n) { return fract(sin(n) * 43758.5453); }
 void main() {
   float life = 1.6 + aSeed.z * 1.6;
@@ -31,15 +33,16 @@ void main() {
   // where is the sea breaking right now? dense foam on a crest
   vec4 d0 = textureLod(uDisp[0], xz / uSize[0], 1.0);
   vec4 d1 = textureLod(uDisp[1], xz / uSize[1], 1.0);
-  float foam = d0.w * 0.5 + d1.w;
   float crest = d0.y + d1.y;
-  float alive = smoothstep(0.55, 1.3, foam) * step(0.0, crest) * uStrength;
+  // spray is torn off crests that are breaking right now
+  float act = textureLod(uActive, xz / uSize[1], 1.0).r;
+  float alive = smoothstep(0.15, 0.6, act) * step(0.0, crest) * uStrength;
   if (alive < 0.01 || aSeed.w > uStrength) { gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vAlpha = 0.0; return; }
   float T = age * life;
   vec3 start = vec3(xz.x + d0.x + d1.x, crest + 0.3, xz.y + d0.z + d1.z);
   vec3 vel = vec3(uWind.x, 0.0, uWind.y) * (0.45 + 0.25 * aSeed.y);
   // ballistic rise and settle, slowed by drag
-  vec3 pos = start + vel * T + vec3(0.0, (1.2 + 2.0 * aSeed.z) * T - 1.6 * T * T, 0.0);
+  vec3 pos = start + vel * T + vec3(0.0, (0.6 + 1.0 * aSeed.z) * T - 1.0 * T * T, 0.0);
   float size = mix(0.3, 1.6 + 1.2 * aSeed.y, sqrt(age));
   vec3 toCam = uCamPos - pos;
   float dist = length(toCam);
@@ -52,7 +55,9 @@ void main() {
   float al = length(along);
   along = al > 0.2 ? along / al : right;
   vec3 up = normalize(cross(vdir, along));
-  vec3 P = pos + along * c.x * size * 2.4 + up * c.y * size * 0.7;
+  // further away a sheet is smeared over more of its drift: longer
+  vec3 P = pos + along * c.x * size * mix(2.4, 8.0, smoothstep(20.0, 150.0, dist)) * mix(0.35, 1.0, smoothstep(0.2, 0.6, al)) + up * c.y * size * 0.7;
+  vAlong = smoothstep(0.2, 0.6, al);
   vUv = c + 0.5;
   vAlpha = alive * sin(3.14159 * age) * (1.0 - smoothstep(uRadius * 0.6, uRadius, dist)) * smoothstep(8.0, 25.0, dist);
   vDist = dist;
@@ -63,6 +68,7 @@ const FS = SKY_LOOKUP_GLSL + `
 centroid in vec2 vUv;
 in float vAlpha;
 in float vDist;
+in float vAlong;
 out vec4 oColor;
 uniform vec3 uFlash;
 float hsh(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
@@ -72,15 +78,17 @@ void main() {
   vec2 q = vUv * 2.0 - 1.0;
   float r = dot(q, q);
   // streaky along the sheet (u runs along the wind)
-  float n = vn(vec2(vUv.x * 2.5, vUv.y * 11.0)) * 0.6 + vn(vec2(vUv.x * 5.0, vUv.y * 27.0) + 3.1) * 0.4;
-  float a = exp(-r * 2.2) * smoothstep(0.35, 0.85, n) * vAlpha * 0.16;
+  // streaky along the wind; seen end-on (no length to streak) an isotropic puff
+  vec2 sc = mix(vec2(6.0, 6.0), vec2(2.5, 11.0), vAlong);
+  float n = vn(vUv * sc) * 0.6 + vn(vUv * sc * 2.2 + 3.1) * 0.4;
+  float a = exp(-r * 2.2) * smoothstep(0.35, 0.85, n) * vAlpha * 0.45;
   // fine droplets scatter skylight and sun (forward-scattering, like mist)
   vec3 L = skyIrradiance() * (0.9 / 3.14159) + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0) * 0.35 + uFlash * 0.3;
   oColor = vec4(L * a, a);
 }`;
 
 export class Spray {
-  constructor(gl, count = 5000) {
+  constructor(gl, count = 12000) {
     this.gl = gl;
     this.count = count;
     this.prog = new Program(gl, VS, FS, { label: 'spray' });
@@ -106,8 +114,8 @@ export class Spray {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
     this.prog.use({
-      ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uAnchor: u.anchor || [0, 0], uTime: u.time, uRadius: 90,
-      uStrength: strength, uWind: u.windVec, uDisp: u.disp, uSize: u.sizes, uFlash: u.flash,
+      ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uAnchor: u.anchor || [0, 0], uTime: u.time, uRadius: 250,
+      uStrength: strength, uWind: u.windVec, uDisp: u.disp, uActive: u.active, uSize: u.sizes, uFlash: u.flash,
     });
     gl.bindVertexArray(this.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.count);
