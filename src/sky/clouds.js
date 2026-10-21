@@ -123,8 +123,10 @@ float shellTop() { return uFront.w > 0.0 ? max(uTop, uStormTop) : uTop; }
 float maxCoverage() { return uFront.w > 0.0 ? max(uCoverage, uStormA.x) : uCoverage; }
 
 // local cloud regime at a point: x coverage, y darkness, z density, w front mask; base/top out
-vec4 regime(vec2 xz, out float base, out float top) {
-  float m = frontMask(xz);
+// h: sample height. High up, the storm's anvil spreads ahead of the line (~3.5 km).
+vec4 regime(vec2 xz, float h, out float base, out float top) {
+  float anvil = smoothstep(uStormTop * 0.62, uStormTop * 0.86, h) * 3500.0;
+  float m = uFront.w > 0.0 ? smoothstep(-uFront.w, uFront.w, frontDist(xz) + anvil) : 0.0;
   base = mix(uBase, uStormA.w, m);
   top = mix(uTop, uStormTop, m);
   return vec4(mix(uCoverage, uStormA.x, m), mix(uDark, uStormA.y, m), mix(uDensity, uStormA.z, m), m);
@@ -181,7 +183,10 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   // which is what gives an overcast its mottled light and dark patches.
   float baseFrac = mix(0.0, (wf - 0.45) * 0.14 + 0.03, dark);
   float topCu = mix(0.45, 1.0, wm.g);
-  float topSt = mix(0.18, 1.0, clamp(wm.b * 0.9 + n.r * 0.7 - 0.3, 0.0, 1.0));
+  float cells = uFront.w > 0.0 ? smoothstep(0.35, 0.75, wm.b * 0.6 + sin(dot(p.xz, vec2(-uFront.y, uFront.x)) / 5200.0) * 0.25 + 0.3) : 0.0;
+  float topSt = mix(0.18, 1.0, clamp(wm.b * 0.9 + n.r * 0.7 - 0.3 + cells * 0.6, 0.0, 1.0));
+  // the anvil itself: a flat, smooth spreading layer near the top of the storm
+  topSt = max(topSt, step(0.86, hf) * dark);
   float tf = mix(topCu, topSt, dark);
   float hg = smoothstep(baseFrac, baseFrac + mix(0.07, 0.05, dark), hf) * (1.0 - smoothstep(tf * 0.55, tf, hf));
   float shape = remapc(n.r, wf - 1.0, 1.0, 0.0, 1.0);
@@ -200,7 +205,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
 }
 float cloudDensity(vec3 p, float h, bool detail) {
   float base, top;
-  vec4 R = regime(p.xz, base, top);
+  vec4 R = regime(p.xz, h, base, top);
   return cloudDensityR(p, h, detail, R, base, top);
 }
 
@@ -259,7 +264,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
     gFoot = t * uPixelAngle;
     float h = heightOf(p);
     float base, top;
-    vec4 R = regime(p.xz, base, top);
+    vec4 R = regime(p.xz, h, base, top);
     if (!inside) {
       if (cloudDensityR(p, h, false, R, base, top) > 0.0) {
         inside = true; miss = 0;

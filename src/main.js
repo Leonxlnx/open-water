@@ -227,7 +227,7 @@ export class App {
       windOffset: this.windOffset, coverage: S.clouds, base: S.cloudBase,
       top: S.cloudBase + 1800 + S.cloudDark * 5200, density: 0.11 - S.cloudDark * 0.05, dark: S.cloudDark,
       front: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0],
-      stormA: [S.sClouds, S.sDark, 0.11 - S.sDark * 0.05, S.sBase], stormTop: S.sBase + 1800 + S.sDark * 5200,
+      stormA: [S.sClouds, S.sDark, 0.11 - S.sDark * 0.05, S.sBase], stormTop: S.sBase + 2500 + S.sDark * 8000, // cumulonimbus tops ~9-10 km
       flash: [lp[0], lp[1], lp[2], flash * (night ? 30 : 0.025)], flashColor: [0.75, 0.8, 1.0], blend: flash > 0.02 ? 0.85 : QUALITY.blend, steps: QUALITY.steps,
       lightSteps: QUALITY.lightSteps, lightDetail: QUALITY.lightDetail, check: QUALITY.check,
       shapeLod: params.has('shapelod') ? Number(params.get('shapelod')) : -1,
