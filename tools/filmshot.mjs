@@ -12,7 +12,8 @@ try {
     const data = await page.evaluate((T) => {
       const dt = 1 / 30;
       // the sea under the frame's weather first: in the film, foam has built up since the act began
-      const tw = Math.max(T - 3, 0), W = Math.min(T < 17 ? T : T < 48 ? T - 17 : T - 48, 25);
+      // (as in the film: a cut to a new act starts with 25 s of that act's sea, see App.filmFrame)
+      const tw = Math.max(T - 3, 0), W = Math.min(T < 17 ? T : T < 48 ? T - 17 + 25 : T - 48 + 25, 50);
       app.filmFrame(tw, dt);
       app.time = tw - W;
       app.warmSea(W);

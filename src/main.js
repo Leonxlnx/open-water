@@ -229,11 +229,12 @@ export class App {
     const stormFog = S.sMist * 1.2e-3 + rainBeta(S.sRain);
     const fogU = {
       uFogDensity: fogDensity, uFogTop: fOn ? (S.cloudBase + S.sBase) * 0.5 + 100 : S.cloudBase + 100,
-      uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0], uFogStorm: [stormFog, night ? 0.65 : 0.5],
+      uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0],
+      uFogStorm: [stormFog, (night ? 0.65 : 0.5) + (1 - (night ? 0.65 : 0.5)) * mCam, (fogDensity + mCam * Math.max(stormFog - fogDensity, 0)) * (fOn ? (S.cloudBase + S.sBase) * 0.5 + 100 : S.cloudBase + 100)],
       uFogCam: [this.cam.pos[0], this.cam.pos[2]],
       uFlashFog: flashRGB.map((x) => x * 0.25), uFlashDir: flashDir,
       // spray haze from breaking crests: grows from a near gale (~14 m/s) upwards
-      uSprayHaze: [smoothstep(10, 24, S.wind) * 1.2e-3, Math.max(this.cam.pos[1], 0.5)],
+      uSprayHaze: [smoothstep(17, 28, S.wind) * 1.2e-3, Math.max(this.cam.pos[1], 0.5)],
     };
 
     // clouds advect with the wind aloft (~1.6x surface wind), detail evolves slowly
@@ -266,7 +267,7 @@ export class App {
       uShaft: [this.atmo.uniforms.uMie[0] * 1e-3, Math.min(S.cloudBase, fOn ? S.sBase : 1e9), S.clouds > 0.05 ? 1.0 : 0.0, (this.time * 0.618) % 1],
     });
     // water-leaving reflectance: deep blue, greyer with bubbles in a high wind, grey-green in rain
-    const rrs = mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], smoothstep(5, 24, S.wind)), [0.0011, 0.0024, 0.0027], smoothstep(0.1, 0.8, L.rain));
+    const rrs = mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], 0.6 * smoothstep(12, 28, S.wind)), [0.0016, 0.0022, 0.0022], smoothstep(0.1, 0.8, L.rain));
     this.sky.renderEnv({ ...skyU, ...fogU, uCloudsEnv: this.clouds.env, uCloudsOn: 1, uSunVis: 1, uEnvRrs: rrs });
 
     // main HDR pass
@@ -289,12 +290,12 @@ export class App {
     this.waterUniforms = {
       ...skyU, ...fogU,
       uViewProj: M.vp, uCamPos: this.cam.pos,
-      uDisp: ot.disp.slice(0, 3), uSlope: ot.slope, uActive: ot.active[1], uActive0: ot.active[0], uLongSlope: Math.max(Math.sqrt(stats.bandMss[0] * 0.6), 0.01), uGlintArea: 2e-5, uSize: ot.sizes, uTexel: ot.texels, uDispScale: 1,
+      uDisp: ot.disp.slice(0, 3), uSlope: ot.slope, uActive: ot.active[1], uActive0: ot.active[0], uLongSlope: Math.max(Math.sqrt(stats.bandMss[0] * 0.6), 0.01), uGlintArea: 2e-5, uGlintExp: night ? 10 : 1, uSize: ot.sizes, uTexel: ot.texels, uDispScale: 1,
       uEnv: this.sky.env, uCloudShadow: this.clouds.shadow, uShadowRect: this.clouds.shadowRect,
       uUnresolved: stats.unresolved, uMssTotal: Math.max(stats.coxMunk, stats.resolvedMss + stats.unresolved), uHs: stats.hs,
       uRrs: rrs, uSSS: [0.004, 0.05, 0.042],
-      uGust: [0.35 + 0.45 * smoothstep(3, 9, S.wind) * (1 - smoothstep(16, 24, S.wind)), this.gustDrift[0], this.gustDrift[1]],
-      uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(10, 19, S.wind) * 0.45, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
+      uGust: [0.25 + 0.4 * smoothstep(1.5, 4, S.wind) * (1 - smoothstep(6, 12, S.wind)), this.gustDrift[0], this.gustDrift[1]],
+      uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(14, 22, S.wind) * 0.45, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
       // a visible ground strike: channel foot xz, cloud base, channel radiance (as drawn, through the rain)
       uBolt: this.lightning.ground && this.lightning.bolt > 0.01 && this.lightning.strike?.ground
         ? [this.lightning.ground[0], this.lightning.ground[1], this.lightning.ground[2], this.lightning.bolt * 2600 * (this.boltT ?? 1)] : [0, 0, 0, 0],
@@ -330,11 +331,14 @@ export class App {
     const fh = Math.hypot(M.fwd[0], M.fwd[2]) || 1;
     const backlit = night ? 0 : smoothstep(0.55, 0.95, (M.fwd[0] * sun[0] + M.fwd[2] * sun[2]) / fh / (Math.hypot(sun[0], sun[2]) || 1)) * (1 - smoothstep(12, 35, W.time.sunElev)) * (1 - L.clouds * 0.8);
     P.section('post');
+    // how much of the frame a storm fills (overhead, or a squall line in view)
+    const stormView = Math.max(smoothstep(0.7, 0.9, L.clouds), fOn ? smoothstep(15000, 3000, S.frontDist) : 0);
     this.post.run(this.hdr, dt, {
-      time: t, bloom: 0.015, // a camera's matrix meter lifts a frame dominated by a dark sea under a high sun
-      exposureBias: Number(params.get('ev') || 0) - 0.5 * L.dark * L.dark * (0.4 + 0.6 * L.rain) + 0.4 * (1 - smoothstep(0.2, 0.4, L.clouds)) * smoothstep(35, 50, W.time.sunElev),
+      time: t, bloom: 0.015 + 0.015 * backlit + 0.02 * (night ? 1 : 0), // a camera's matrix meter lifts a frame dominated by a dark sea under a high sun
+      exposureBias: Number(params.get('ev') || 0) - 0.6 * backlit - 1.0 * L.dark * L.dark * (0.4 + 0.6 * L.rain) + 0.4 * (1 - smoothstep(0.2, 0.4, L.clouds)) * smoothstep(35, 50, W.time.sunElev),
       skyU, cloudShadow: this.clouds.shadow, incident: 0.65 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : (0.1 * smoothstep(0.25, 0.6, L.clouds) + 0.35 * smoothstep(0.8, 0.95, L.clouds)) * (1 - backlit) * (night ? 0 : 1), night: night ? 1 : 0,
-      look: params.has('look') ? params.get('look').split(',').map(Number) : night ? [1.35, 0.4, 1.0, 0.004] : L.clouds > 0.8 ? [1.45, 0.38, 0.95, 0.015] : undefined,
+      look: params.has('look') ? params.get('look').split(',').map(Number) : night ? [1.35, 0.4, 1.0, 0.004] : mixv([1.5, 0.4, 1.0, 0.004], [1.6, 0.36, 0.95, 0.03], stormView),
+      look2: night ? [1.5, 1.0] : [1.8 - 0.3 * stormView, (1.15 + 0.1 * backlit) * (1 - stormView) + stormView],
     });
     P.end();
     this.stats = stats;
@@ -351,6 +355,9 @@ export class App {
       // new shot: settle foam, clouds and camera filters off-screen (during the dip to black)
       this.filmAct = act;
       const t0 = film.acts[act].start;
+      // the new shot's wind has been blowing for a while: its foam history first (25 s, waves only)
+      this.filmFrame(t0 - 28, dt, t0);
+      this.warmSea(25, dt);
       for (let w = t0 - 3; w < t0 - dt / 2; w += dt) this.filmFrame(w, dt, t0);
     }
     this.filmAct = act;
@@ -406,11 +413,12 @@ export class App {
     this.water.draw({ ...this.waterUniforms, uViewProj: mul(proj, view), uCamPos: pos, uDebug: 1 });
     const px = new Float32Array(this.w * this.h * 4);
     gl.readPixels(0, 0, this.w, this.h, gl.RGBA, gl.FLOAT, px);
-    let s = 0, raw = 0;
+    let s = 0, raw = 0, a = 0;
     // whitecap coverage as photographs measure it: pixels where the foam is more than half opaque
-    for (let i = 0; i < px.length; i += 4) { s += px[i] > 0.5 ? 1 : 0; raw += px[i + 1]; }
+    // (a: stage A, the actively breaking part)
+    for (let i = 0; i < px.length; i += 4) { s += px[i] > 0.5 ? 1 : 0; raw += px[i + 1]; a += px[i + 2] > 0.5 ? 1 : 0; }
     const n = px.length / 4;
-    return { coverage: s / n, raw: raw / n };
+    return { coverage: s / n, raw: raw / n, active: a / n };
   }
 }
 

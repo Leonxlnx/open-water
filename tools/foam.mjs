@@ -10,7 +10,7 @@ try {
       return app.measureFoam();
     });
     const monahan = 3.84e-6 * Math.pow(U, 3.41);
-    console.log(`U=${U} m/s  visible=${(r.coverage * 100).toFixed(2)}%  raw=${r.raw.toFixed(3)}  monahan=${(monahan * 100).toFixed(2)}%`);
+    console.log(`U=${U} m/s  visible=${(r.coverage * 100).toFixed(2)}%  stageA=${(r.active * 100).toFixed(2)}%  raw=${r.raw.toFixed(3)}  monahan=${(monahan * 100).toFixed(2)}%`);
     await page.close();
   }
 } finally { await browser.close(); }

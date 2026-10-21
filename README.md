@@ -32,7 +32,11 @@ makes geometry, normals and BRDF hand over seamlessly. Sub-cascade roughness is 
 remainder, and no pixel may hold more slope variance than the whole surface has. Sun glitter is
 carried by individual capillary facets: a pixel footprint holding N facets shows on average
 λ = E[L]·Ω☉ / (F·L☉)·N glints, sampled as a Poisson count, so the near field is discrete,
-full-brightness sparkles on dark water and the far field converges to the smooth glitter path. Also modeled: averaged Fresnel, water-leaving radiance from ocean-optics remote-sensing
+full-brightness sparkles on dark water and the far field converges to the smooth glitter path.
+Near the camera the glinting facets are larger, so sparkles are fewer and brighter, and each
+one's brightness varies. A rough sea blurs the reflected sky mostly in elevation: tilting a facet
+sideways turns a grazing reflection by only about el·tan(e) in azimuth. A ray reflected below the
+horizon sees the next wave. Also modeled: averaged Fresnel, water-leaving radiance from ocean-optics remote-sensing
 reflectance (deep ultramarine that turns grey-green as breaking waves fill the water with
 bubbles), backlit crest scattering, cloud shadows drifting over the sea, Earth curvature and
 aerial perspective.
@@ -43,10 +47,12 @@ Both are drawn as the probability that a procedural bubble-raft pattern lies bel
 foam density, so a whitecap is solid only at its core, its rim frays into filaments, and old foam
 opens up along the raft network into lace instead of shrinking as a blob. Crests break in
 segments of a few metres along the crest. Residual foam lives from about a second in a breeze to
-twenty seconds in a gale, thins into a translucent film as it ages, and at gale force gathers
-into ragged wind rows tens of metres long. The breaking
+twenty seconds in a gale and fades out as it thins, and at gale force gathers into narrow,
+meandering wind rows tens of metres long. Fresh caps have an opaque white core; foam is a
+translucent layer over the water, never darker than it. The breaking
 threshold is expressed in standard deviations of the Jacobian and calibrated so coverage follows
-the Monahan & O'Muircheartaigh (1980) whitecap law within about 10% from 8 to 28 m/s
+the Monahan & O'Muircheartaigh (1980) whitecap law within about 15% from 8 to 21 m/s, with active
+breaking about a quarter to a third of it in strong wind
 (`tools/foam.mjs`).
 
 **Sky.** The atmosphere follows Hillaire (2020): transmittance, multiple-scattering, sky-view
@@ -114,7 +120,7 @@ photography. The measurable parts are checked with tools:
 | --- | --- | --- |
 | Significant wave height, Bf 5 / 7 / 9 (`tools/hscheck.mjs`) | 2–2.5 / 4–5.5 / 7–10 m | 2.1 / 4.8 / 9.2 m |
 | GPU height variance vs. spectrum integral | equal | within sampling error (±10%) |
-| Whitecap coverage at 8.5 / 15 / 21 / 28 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 3.9 / 12.4 / 33 % | 0.58 / 4.0 / 12.8 / ~26 % (pixels with foam over half opaque) |
+| Whitecap coverage at 8.5 / 11 / 15 / 21 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 1.37 / 3.9 / 12.4 % | 0.53 / 1.19 / 4.3 / 14.1 % (pixels with foam over half opaque); actively breaking 0.34 / 0.48 / 1.2 / 3.7 % |
 | Thunder delay | distance / 343 m/s | exact |
 | Visibility in the heaviest rain (Koschmieder, 3.9 / β) | ~2–3 km | 3.0 km |
 | Tonal range vs. reference photos (`tools/tonestats.mjs`) | p10 ≈ 5–45, highlights ≈ 230–255 | shadows deepened, highlights reach white |

@@ -23,7 +23,7 @@ void main() {
   if (uFirst > 0.5) {
     // Karis average on the first mip to suppress fireflies from glints
     vec3 g0 = (a + b + d + e) * 0.25, g1 = (b + c + e + f) * 0.25, g2 = (d + e + g + h) * 0.25, g3 = (e + f + h + i) * 0.25, g4 = (j + k + l + m) * 0.25;
-    float w0 = 1.0 / (1.0 + lum(g0)), w1 = 1.0 / (1.0 + lum(g1)), w2 = 1.0 / (1.0 + lum(g2)), w3 = 1.0 / (1.0 + lum(g3)), w4 = 1.0 / (1.0 + lum(g4));
+    float w0 = 1.0 / (1.0 + lum(g0) * 0.02), w1 = 1.0 / (1.0 + lum(g1) * 0.02), w2 = 1.0 / (1.0 + lum(g2) * 0.02), w3 = 1.0 / (1.0 + lum(g3) * 0.02), w4 = 1.0 / (1.0 + lum(g4) * 0.02);
     col = (g0 * w0 * 0.125 + g1 * w1 * 0.125 + g2 * w2 * 0.125 + g3 * w3 * 0.125 + g4 * w4 * 0.5) /
           (w0 * 0.125 + w1 * 0.125 + w2 * 0.125 + w3 * 0.125 + w4 * 0.5);
   } else {
@@ -111,6 +111,7 @@ uniform float uFlashExposure;
 uniform float uManualExposure;
 uniform float uFade;
 uniform float uNight;
+uniform vec2 uLook2;   // x: highlight contrast, y: saturation in log space (before the curve)
 
 vec3 agxContrast(vec3 x) {
   vec3 x2 = x * x, x4 = x2 * x2;
@@ -124,6 +125,8 @@ vec3 agx(vec3 v) {
   v = m * v;
   v = clamp(log2(max(v, vec3(1e-10))), lo, hi);
   v = (v - lo) / (hi - lo);
+  float lm = dot(v, vec3(0.2126, 0.7152, 0.0722));
+  v = lm + uLook2.y * (v - lm);
   return agxContrast(v);
 }
 vec3 agxEotf(vec3 v) {
@@ -141,7 +144,7 @@ vec3 agxLook(vec3 v) {
   // a gentler (near-linear) toe: deep shadows keep some separation
   vec3 klo = mix(vec3(1.1), vec3(k), smoothstep(0.08, pv, v));
   vec3 lo = pv * pow(v / pv, klo);
-  vec3 hi = 1.0 - (1.0 - pv) * pow(max(1.0 - v, vec3(0.0)) / (1.0 - pv), vec3(k));
+  vec3 hi = 1.0 - (1.0 - pv) * pow(max(1.0 - v, vec3(0.0)) / (1.0 - pv), vec3(uLook2.x));
   v = mix(lo, hi, step(pv, v));
   v = max(v - uLook.w, vec3(0.0)) / (1.0 - uLook.w);
   float luma = dot(v, vec3(0.2126, 0.7152, 0.0722));
@@ -240,8 +243,8 @@ export class Post {
       uMinLum: opts.minLum ?? 0.0003,
       uMaxLum: opts.maxLum ?? 10,
       uTime: opts.time,
-      uGrain: opts.grain ?? 0.012,
-      uLook: opts.look ?? [1.5, 0.4, 1.08, 0.004],
+      uGrain: opts.grain ?? 0.006,
+      uLook: opts.look ?? [1.5, 0.4, 1.0, 0.004], uLook2: opts.look2 ?? [1.8, 1.15],
       uVignette: opts.vignette ?? 0.18,
       uFlashExposure: opts.flashExposure ?? 0,
       uManualExposure: opts.manualExposure ?? 0,

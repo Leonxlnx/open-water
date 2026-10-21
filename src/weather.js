@@ -98,11 +98,11 @@ export class Weather {
     const U = this.state.wind;
     // z: breaking threshold in standard deviations of the Jacobian. Calibrated so visible coverage
     // follows Monahan & O'Muircheartaigh (1980), stage A + B, within ~10% from 8 to 28 m/s.
-    const z = table(U, [3, 5, 8.5, 11, 15, 21, 28], [3.0, 2.2, 1.78, 1.67, 1.58, 1.12, 0.4]);
+    const z = table(U, [3, 5, 8.5, 11, 15, 21, 28], [3.2, 2.6, 2.11, 1.94, 1.665, 1.19, 0.5]);
     const gain = 1.2;
     // residual foam lingers longer in strong wind (e-folding ~7 s at 14 m/s, ~20 s in a gale):
     // drifting at ~0.035 U it draws streaks 10-15 m long
-    const decay = table(U, [5, 8.5, 14, 18, 24], [0.8, 0.35, 0.1, 0.055, 0.05]);
+    const decay = table(U, [5, 8.5, 14, 18, 24], [0.3, 0.12, 0.075, 0.08, 0.13]);
     return [z, gain, decay];
   }
 }

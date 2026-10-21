@@ -374,6 +374,7 @@ vec3 starField(vec3 d, float pixelAngle, float time) {
 // Lit by the diffuse sky/cloud light plus a forward-scattering sun lobe (droplets, g ~ 0.7).
 uniform float uFogDensity;
 uniform float uFogTop;
+uniform vec3 uFogStorm;   // storm-side extinction (1/m), storm-side brightness factor, optical depth of the veil around the camera
 uniform vec3 uFlashFog;   // lightning light scattered by rain and mist
 uniform vec3 uFlashDir;   // direction to the current lightning strike
 vec3 fogRadiance(vec3 dir, float sunFrac) {
@@ -383,7 +384,7 @@ vec3 fogRadiance(vec3 dir, float sunFrac) {
   // thick haze in a hemisphere-lit field: in-scatter -> albedo * E / (2 pi) (sky above, dark sea below).
   // A layer of rain several optical depths thick scatters many times and barely absorbs: its light
   // field approaches the mean radiance E / pi (rain greys the view, it does not black out the day)
-  float tauV = uFogDensity * uFogTop;
+  float tauV = max(uFogDensity * uFogTop, uFogStorm.z);
   float a = 0.46 + 0.45 * (1.0 - exp(-tauV));
   // lightning light scattered by rain and mist is concentrated towards the strike
   float fl = 0.2 + 2.2 * pow(max(dot(dir, uFlashDir), 0.0), 8.0);
@@ -442,7 +443,6 @@ vec3 shafts(vec3 ro, vec3 dir, float dist) {
 
 // Squall front: rain curtains beyond the line dot(xz, n) = offset, ramping over +-width.
 uniform vec4 uFogFront;   // xy normal (towards the storm), z offset (m), w width (0 = off)
-uniform vec2 uFogStorm;   // storm-side extinction (1/m), storm-side brightness factor
 float frontCurve(float along) { return 1400.0 * sin(along / 7000.0) + 650.0 * sin(along / 2900.0 + 1.3); }
 uniform vec2 uFogCam;     // camera xz
 // antiderivative of the linear ramp clamp((u + w) / 2w, 0, 1)
@@ -453,15 +453,6 @@ uniform vec2 uSprayHaze;  // x: extinction at the sea surface (1/m), y: camera h
 vec3 applyFog(vec3 col, vec3 dir, float dist) {
   float L = fogPathLength(dir, dist);
   float tau = uFogDensity * L;
-  // wind-borne spray hugging the sea (scale height H ~ 20 m): integral of exp(-h/H) along the ray
-  if (uSprayHaze.x > 0.0) {
-    const float Hs = 20.0;
-    float Ls = min(dist, 30000.0);
-    float d = dir.y;
-    float h0 = uSprayHaze.y;
-    float I = abs(d) < 1e-4 ? exp(-h0 / Hs) * Ls : Hs / d * (exp(-h0 / Hs) - exp(-max(h0 + d * Ls, 0.0) / Hs));
-    tau += uSprayHaze.x * max(I, 0.0);
-  }
   float stormFrac = 0.0;
   float tcurtain = 0.0;
   if (uFogFront.w > 0.0) {
@@ -479,6 +470,8 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     vec2 xc = uFogCam + dir.xz * (tc > 0.0 ? tc : min(L, 2500.0));
     float along = dot(xc, vec2(-n.y, n.x));
     float shafts = 0.05 + 2.6 * pow(fogNoise(along / 1700.0), 2.0) * (0.6 + 0.4 * fogNoise(along / 430.0 + 7.0));
+    // under the downpour itself there are no gaps around the viewer: the veil hides the cloud base
+    shafts = max(shafts, 0.85 * smoothstep(-w, w, s0));
     // curtains fade out into the cloud base instead of ending at a ruler-straight line
     float hcr = max(dir.y * max(tc, 0.0), 0.0);
     float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.35 * uFogTop, uFogTop, hcr));
@@ -494,6 +487,15 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     // (far curtains: the streaks merge; only the broad shafts remain)
     stormFrac *= mix(0.92 + 0.16 * streak, 0.72 + 0.5 * streak, near);
     tcurtain = max(tc, 0.0);
+  }
+  // wind-borne spray hugging the sea (scale height H ~ 20 m): integral of exp(-h/H) along the ray
+  if (uSprayHaze.x > 0.0) {
+    const float Hs = 20.0;
+    float Ls = min(dist, tcurtain > 0.0 ? tcurtain : 12000.0);
+    float d = dir.y;
+    float h0 = uSprayHaze.y;
+    float I = abs(d) < 1e-4 ? exp(-h0 / Hs) * Ls : Hs / d * (exp(-h0 / Hs) - exp(-max(h0 + d * Ls, 0.0) / Hs));
+    tau += uSprayHaze.x * max(I, 0.0);
   }
   float T = exp(-tau);
   // the storm's rain curtains stand in the storm's shadow: no direct sun, darker diffuse light

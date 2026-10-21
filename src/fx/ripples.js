@@ -27,7 +27,7 @@ vec2 rippleLayer(vec2 xz, float t, float cell, float life, float rain, float see
     float x = (r - R) / w;
     if (abs(x) > 3.0) continue;
     float lambda = 0.016 + 0.01 * tl;
-    float env = exp(-x * x) * exp(-tl * 2.5) * mix(0.6, 1.0, h2.x);
+    float env = exp(-x * x) * exp(-tl * 2.5) * mix(0.3, 1.0, h2.x * h2.x);
     env *= (1.0 - smoothstep(0.9 * cell, 1.2 * cell, r)) * (1.0 - smoothstep(0.7 * period, period, tl));
     float ds = env * cos(6.2831 * (r - R) / lambda) * (0.22 + 0.16 * h.y);
     slope += ds * d / max(r, 1e-4);
@@ -63,8 +63,6 @@ vec3 rainRipples(vec2 xz, float t, float rain, float dist, float pix) {
     s += rippleLayer(xz, t + 0.73, 0.27, 0.65, density * 0.8, 9.1);
     s += rippleLayer(xz, t + 0.17, 0.1, 0.45, density * 0.85, 13.3);
     s += rippleLayer(xz, t + 0.49, 0.12, 0.5, density * 0.85, 17.9);
-    s += rippleLayer(xz, t + 0.23, 0.05, 0.33, density * 0.85, 21.7);
-    s += rippleLayer(xz, t + 0.61, 0.06, 0.35, density * 0.85, 25.3);
     s *= near;
     // ~2600 impacts per m2 and second at the heaviest rate; resolved only within a few metres
     float cr = 1.0 - smoothstep(0.003, 0.006, pix);
@@ -76,7 +74,7 @@ vec3 rainRipples(vec2 xz, float t, float rain, float dist, float pix) {
     }
   }
   // sub-pixel ring energy -> isotropic roughness (per-axis slope variance)
-  float rough = rain * 0.016 * (1.0 - near * 0.6);
+  float rough = rain * 0.006 * (1.0 - near * 0.6);
   return vec3(s, rough);
 }
 `;

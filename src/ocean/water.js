@@ -59,6 +59,7 @@ uniform float uLongSlope;        // rms slope of the dominant (1800 m cascade) w
 uniform float uGlintArea;        // area of a glinting capillary facet (m2)
 uniform vec4 uBolt;              // ground strike: foot xz, channel top height, channel radiance (0: none)
 uniform float uHs;
+uniform float uGlintExp;          // glints integrated by the exposure (long at night)
 uniform vec3 uRrs;               // water-leaving remote sensing reflectance (1/sr)
 uniform vec3 uSSS;               // crest scatter colour * strength
 uniform float uFoamAmount;
@@ -155,8 +156,11 @@ void main() {
   // the forward (downwind) faces of the dominant waves: steep short waves and breaking live there
   float face = smoothstep(0.0, 1.0, -dot(s, uWindDir) / max(uLongSlope, 0.01));
   float hm = clamp(0.6 * crestM + 0.4 * face, 0.0, 1.0);
-  float sm = clamp((1.0 + uGust.x * (gust - 0.5) * 1.0) * mix(0.55, 1.6, hm), 0.35, 2.0);
-  SLOPE(1, mix(1.0, sm, 0.5)) SLOPE(2, sm) SLOPE(3, sm)
+  float sm = clamp((1.0 + uGust.x * (gust - 0.5)) * mix(0.8, 1.25, hm), 0.6, 1.5);
+  SLOPE(1, mix(1.0, sm, 0.5))
+  // slopes of the waves long enough to make thin, backlit crests
+  vec2 sL = s;
+  SLOPE(2, sm) SLOPE(3, sm)
   float foamRaw = 0.0;
   float plume = 0.0;
   float activeRaw = 0.0;
@@ -174,22 +178,21 @@ void main() {
     // (a soft density ramp: the bubble pattern, not the field's outline, shapes the cap)
     // (the crest moves downwind: a point collects the froth of crests now 1.5-5 m downwind of it)
     vec2 ga = dFdx(u1) * 1.6, gb = dFdy(u1) * 1.6, wo = uWindDir / uSize[1];
-    float aT = textureGrad(uActive, u1, ga, gb).r + textureGrad(uActive, u1 + wo * 1.5, ga, gb).r * 0.8
-             + textureGrad(uActive, u1 + wo * 3.0, ga, gb).r * 0.55 + textureGrad(uActive, u1 + wo * 5.0, ga, gb).r * 0.3;
-    activeRaw = aT * 0.45 + textureGrad(uActive0, u0, dFdx(u0) * 1.2, dFdy(u0) * 1.2).r * 0.8;
-    activeRaw *= mix(0.6, 1.35, crest) * mix(0.6, 1.4, face);
+    float aT = max(max(textureGrad(uActive, u1, ga, gb).r, textureGrad(uActive, u1 + wo * 1.5, ga, gb).r * 0.8),
+                   max(textureGrad(uActive, u1 + wo * 3.0, ga, gb).r * 0.55, textureGrad(uActive, u1 + wo * 5.0, ga, gb).r * 0.3));
+    activeRaw = aT * 1.2 + textureGrad(uActive0, u0, dFdx(u0) * 1.2, dFdy(u0) * 1.2).r * 0.8;
+    activeRaw *= mix(0.6, 1.35, crest) * mix(0.8, 1.25, face);
     // bubble plume: the same foam fields blurred over a few metres (bubbles spread and sink)
     // (it follows recent breaking: mostly the active field, a little of the old foam)
-    vec4 b1 = texture(uDisp[1], u1, 2.5);
     float pa = textureLod(uActive, u1, 2.5).r;
-    plume = clamp((pa * 1.5 + b1.w * 0.15) * mix(0.5, 1.3, crest), 0.0, 2.0);
+    plume = clamp(pa * 1.5 * mix(0.5, 1.3, crest), 0.0, 2.0);
   }
 
   // rain ripples: normal perturbation near the camera, extra roughness further away
   vec3 rr = rainRipples(vXZ, uTime, uRain, dist, sqrt(footA));
   s += rr.xy;
   // unresolved capillary roughness: sparkles near the camera, smooth BRDF lobe far away
-  float unres = uUnresolved * 0.5 * sm * sm;
+  float unres = uUnresolved * 0.5 * sm * sm * (1.0 - 0.4 * uRain);
   vec2 sigmaSq = var + vec2(unres);
   sigmaSq = max(sigmaSq, vec2(2e-5));
 
@@ -200,7 +203,8 @@ void main() {
   float kv = min(0.5 * (dot(dNx, dNx) + dot(dNy, dNy)), 0.08);
   // the footprint cannot hold more slope variance than the whole surface has (Cox-Munk): beyond that
   // the glitter path would stop narrowing toward the horizon. Rain roughness comes on top.
-  sigmaSq = min(sigmaSq + vec2(kv), vec2(0.5 * uMssTotal)) + vec2(rr.z);
+  vec2 sigmaSun = min(sigmaSq + vec2(kv), vec2(0.5 * uMssTotal)) + vec2(rr.z);
+  sigmaSq = min(sigmaSq, vec2(0.5 * uMssTotal)) + vec2(rr.z);
   vec3 Ty = normalize(cross(N, vec3(1.0, 0.0, 0.0)));
   vec3 Tx = cross(Ty, N);
 
@@ -228,13 +232,13 @@ void main() {
   float below = smoothstep(-lobe, lobe, -R.y);
   float s2 = sqrt(0.5 * (sigmaSq.x + sigmaSq.y));
   float F2 = 0.02 + 0.98 * pow(1.0 - clamp(abs(R.y) + s2, 0.0, 1.0), 5.0);
-  R.y = abs(R.y) + below * 2.0 * s2;
+  R.y = mix(abs(R.y), max(2.0 * s2 - abs(R.y), 0.01), below);
   R = normalize(R);
   // extended sources (sky, clouds) are blurred by the full capillary roughness, except near the
   // camera where only the sun's tiny disk resolves into sparkles
   float rough = sqrt(max(sigmaSq.x + sigmaSq.y - 2.0 * unres * (1.0 - mix(0.35, 1.0, smoothstep(4.0, 400.0, dist))), 4e-5));
   // mip from the BRDF width and from the spread of reflected directions within the pixel
-  float envSpread = min(max(rough * 1.18, dR * 1.41), 1.6);
+  float envSpread = min(max(rough * 1.18, min(dR * 1.41, 2.0 * rough + 0.01)), 1.6);
   vec3 sky = envSample(R, envSpread) * mix(1.0, F2, below) + below * (1.0 - F2) * uRrs * Ed;
   vec3 refl = F * sky;
   // rain impact stipple where a single impact (crater + crown, ~2 cm2) is about pixel-sized: a
@@ -242,21 +246,21 @@ void main() {
   // (darker), crowns catch the light (brighter)
   if (uRain > 0.01) {
     float pix = sqrt(footA);
-    float vis = smoothstep(0.003, 0.006, pix) * (1.0 - smoothstep(0.15, 0.4, pix));
+    float vis = smoothstep(0.003, 0.006, pix) * (1.0 - smoothstep(0.05, 0.12, pix));
     if (vis > 0.0) {
-      float lamI = 2600.0 * uRain * footA * 0.5;
-      vec2 cell = gCell;
+      float lamC = 2600.0 * uRain * footA * 0.15 * 4.0;
+      vec2 cell = floor(gCell * 0.5);
       float u1 = fract(sin(dot(vec3(cell, floor(uTime * 16.0)), vec3(12.9898, 78.233, 45.164))) * 43758.5453);
-      float u2 = fract(u1 * 91.73 + 0.37);
-      float pk = exp(-lamI), cdf = pk, k = 0.0;
-      for (int i = 0; i < 12; i++) { if (u1 <= cdf) break; k += 1.0; pk *= lamI / k; cdf += pk; }
+      float pk = exp(-lamC), cdf = pk, k = 0.0;
+      for (int i = 0; i < 16; i++) { if (u1 <= cdf) break; k += 1.0; pk *= lamC / k; cdf += pk; }
       float frac = min(2e-4 / footA, 1.0);
-      refl *= 1.0 + clamp((k - lamI) * frac, -0.6, 1.0) * (u2 < 0.75 ? 0.7 : -0.2) * vis;
+      vec3 Limp = 0.035 * envSample(vec3(0.0, 1.0, 0.0), 0.8) + uRrs * Ed;
+      refl = mix(refl, Limp, clamp((k - lamC) * 0.25 * frac, -0.25, 0.25) * vis);
     }
   }
 
   // sun glitter
-  vec3 sun = uSunE * sunVis * reflectedSun(L, V, N, Tx, Ty, sigmaSq);
+  vec3 sun = uSunE * sunVis * reflectedSun(L, V, N, Tx, Ty, sigmaSun);
   // Glints: the expected sun reflection is carried by a few capillary facets (~1 cm2) whose slopes
   // happen to mirror the sun's disk (6.8e-5 sr) into the eye. With N facets in the pixel footprint,
   // lambda = E[L] Omega_sun / (F L_sun) N glint on average: near the camera lambda << 1 (sparse,
@@ -266,7 +270,7 @@ void main() {
     float fH = 0.02 + 0.98 * pow(max(1.0 - dot(V, Hs), 0.0), 5.0);
     // (glinting capillary facets of a few cm2)
     float lam = dot(sun, vec3(0.2126, 0.7152, 0.0722)) / max(dot(uSunE * sunVis, vec3(0.2126, 0.7152, 0.0722)), 1e-9)
-              * 6.8e-5 / fH * (footA / uGlintArea);
+              * 6.8e-5 / fH * (footA / (uGlintArea * mix(6.0, 1.0, smoothstep(8.0, 80.0, dist)))) * uGlintExp;
     if (lam > 1e-7 && lam < 400.0) {
       vec2 cell = gCell;
       float u = fract(sin(dot(vec3(cell, floor(uTime * 30.0)), vec3(12.9898, 78.233, 37.719))) * 43758.5453);
@@ -280,7 +284,8 @@ void main() {
         float u2 = fract(u * 113.37 + 0.71);
         k = max(lam + sqrt(lam) * sqrt(-2.0 * log(max(u, 1e-6))) * cos(6.2831853 * u2), 0.0);
       }
-      sun *= k / lam;
+      float u3 = fract(u * 71.13 + 0.23);
+      sun *= k / lam * mix(-log(max(u3, 1e-3)), 1.0, min(k * 0.25, 1.0));
     }
   }
 
@@ -307,20 +312,19 @@ void main() {
   float H = max(vDisp + 0.15 * uHs, 0.0) / max(uHs, 0.3);
   // only thin, steep crests near enough to resolve transmit light
   float back = pow(max(dot(L, -V), 0.0), 4.0) * pow(max(0.5 - 0.5 * dot(L, N), 0.0), 3.0)
-             * (1.0 - smoothstep(20.0, 200.0, dist)) * smoothstep(0.15, 0.35, length(s));
-  float side = pow(nv, 2.0) * 0.18;
-  vec3 sss = uSSS * (1.0 - F) * (H * back * 3.0 * uSunE * sunVis + side * (uSkyE + uSunE * sunVis * max(L.y, 0.0) * 0.3));
+             * (1.0 - smoothstep(20.0, 200.0, dist)) * smoothstep(0.3, 0.5, length(sL));
+  vec3 sss = uSSS * (1.0 - F) * H * back * 3.0 * uSunE * sunVis;
 
   // submerged bubbles backscatter strongly: the water around and beneath whitecaps turns pale aquamarine
   float pl = (1.0 - exp(-plume * uFoamAmount * 1.8)) * (1.0 - smoothstep(150.0, 900.0, dist) * 0.6);
-  body += (1.0 - F) * pl * vec3(0.05, 0.09, 0.075) * Ed / M_PI;
+  body += (1.0 - F) * pl * vec3(0.025, 0.045, 0.038) * Ed / M_PI;
   vec3 col = refl * uDbgMask.x + sun * uDbgMask.y + (body + sss) * uDbgMask.z;
-  col += (1.0 - F) * uRain * 0.035 * smoothstep(3.0, 40.0, dist) * (uSkyE + uSunE * sunVis * max(L.y, 0.0)) / M_PI;
+  col += (1.0 - F) * uRain * 0.008 * smoothstep(3.0, 40.0, dist) * (uSkyE + uSunE * sunVis * max(L.y, 0.0)) / M_PI;
 
   // foam
   vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount, uFoamLace * uFoamAmount, activeRaw * uFoamAmount, dist);
   float foam = fc.x;
-  if (uDebug == 1) { oColor = vec4(foam, foamRaw, 0.0, 1.0); return; }
+  if (uDebug == 1) { oColor = vec4(foam, foamRaw, foamCovA, 1.0); return; }
   if (foam > 0.0) {
     // bubble layer: thick fresh foam is a bright diffuse scatterer (albedo ~0.8);
     // thin residual foam is translucent and picks up the water's blue-green
@@ -330,10 +334,10 @@ void main() {
     vec3 Ein = uSunE * sunVis * wrapL + uSkyE * (0.45 + 0.55 * Nf.y) + uFlash;
     // bubble foam scatters like a diffuse white layer (albedo ~0.6-0.85); only its thinnest
     // parts let a little of the blue-green water show through
-    float albedo = mix(0.3, 0.86, thick);
-    vec3 tint = mix(vec3(0.82, 0.93, 0.95), vec3(1.0), thick);
+    float albedo = mix(0.45, 0.88, thick);
+    vec3 tint = mix(vec3(0.88, 0.95, 0.97), vec3(1.0), thick);
     vec3 foamCol = albedo * tint * Ein / M_PI;
-    col = mix(col, foamCol, foam);
+    col = col * (1.0 - foam * mix(0.55, 1.0, thick)) + foam * foamCol;
   }
 
   // lightning reflection (broad, from cloud base)
