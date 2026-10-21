@@ -8,9 +8,9 @@ vec3 rhash3(vec2 p) {
 }
 vec2 rippleLayer(vec2 xz, float t, float cell, float life, float rain, float seed) {
   vec2 p = xz / cell + seed;
-  vec2 base = floor(p - 0.5);
+  vec2 base = floor(p) - 1.0;
   vec2 slope = vec2(0.0);
-  for (int j = 0; j <= 1; j++) for (int i = 0; i <= 1; i++) {
+  for (int j = 0; j <= 2; j++) for (int i = 0; i <= 2; i++) {
     vec2 cid = base + vec2(float(i), float(j));
     vec3 h = rhash3(cid + seed * 7.13);
     float period = life * (1.0 + h.z);
@@ -28,6 +28,7 @@ vec2 rippleLayer(vec2 xz, float t, float cell, float life, float rain, float see
     if (abs(x) > 3.0) continue;
     float lambda = 0.016 + 0.01 * tl;
     float env = exp(-x * x) * exp(-tl * 4.0) * mix(0.6, 1.0, h2.x);
+    env *= (1.0 - smoothstep(0.9 * cell, 1.2 * cell, r)) * (1.0 - smoothstep(0.7 * period, period, tl));
     float ds = env * cos(6.2831 * (r - R) / lambda) * (0.06 + 0.1 * h.y);
     slope += ds * d / max(r, 1e-4);
   }

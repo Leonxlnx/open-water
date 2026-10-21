@@ -25,10 +25,12 @@ void main() {
   vec3 col = skyRadiance(d);
   col += starField(d, uPixelAngle, uTime);
   float c = dot(d, uSunDir);
-  if (c > SUN_COS - 2e-5) {
+  float wEdge = 0.00465 * uPixelAngle;
+  if (c > SUN_COS - wEdge) {
     // sun disk with limb darkening (Neckel & Labs approximation)
     float mu = sqrt(max(0.0, 1.0 - (1.0 - c) / (1.0 - SUN_COS)));
-    vec3 limb = pow(vec3(mu), vec3(0.397, 0.503, 0.652));
+    // limb darkening I(mu) = mu^a, normalised so the disk carries the full illuminance
+    vec3 limb = pow(vec3(mu), vec3(0.397, 0.503, 0.652)) * (1.0 + 0.5 * vec3(0.397, 0.503, 0.652));
     if (uIsMoon > 0.5) {
       // the moon: no limb darkening, darker maria (albedo ~0.07 vs ~0.12 highlands)
       vec3 t1 = normalize(cross(uSunDir, vec3(0.0, 1.0, 0.0)));
@@ -36,7 +38,7 @@ void main() {
       float maria = mnoise(q * 2.2 + 3.1) * 0.6 + mnoise(q * 5.0) * 0.3 + mnoise(q * 11.0) * 0.1;
       limb = vec3(mix(1.15, 0.62, smoothstep(0.45, 0.62, maria)));
     }
-    float edge = smoothstep(SUN_COS - 2e-5, SUN_COS + 2e-5, c);
+    float edge = smoothstep(SUN_COS - wEdge, SUN_COS + wEdge, c);
     col += sunIlluminance() * uSunVis / 6.8e-5 * limb * edge * 1.0;
   }
   if (uCloudsOn > 0.5) {
@@ -100,6 +102,9 @@ export class Sky {
     this.pEnv = new Program(gl, FULLSCREEN_VS, ENV_FS, { label: 'env' });
     this.env = new Texture(gl, { w: 512, h: 256, format: 'rgba16f', mips: true, wrap: 'clamp' });
     this.envTarget = new Target(gl, [this.env]);
+    // wrap in azimuth (seam at 180 deg), clamp in elevation
+    gl.bindTexture(gl.TEXTURE_2D, this.env.tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     this.pIrr = new Program(gl, FULLSCREEN_VS, IRR_FS, { label: 'irradiance' });
     this.irradiance = new Texture(gl, { w: 1, h: 1, format: 'rgba16f', filter: 'nearest' });
     this.irrTarget = new Target(gl, [this.irradiance]);

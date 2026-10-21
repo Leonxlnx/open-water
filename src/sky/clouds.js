@@ -100,7 +100,11 @@ uniform float uDark;          // storm darkness 0..1
 uniform vec4 uFront;          // squall front: xy unit normal (towards the storm), z offset (m), w width (0 = off)
 uniform vec4 uStormA;         // storm side: coverage, darkness, density, base
 uniform float uStormTop;      // storm side: top (m)
-uniform float uShapeLod;      // debug: <0 automatic mip selection
+uniform float uShapeLod;      // debug: >= 0 forces the shape-noise mip level
+uniform float uPixelAngle;    // radians per pixel of the pass (footprint for texture LOD)
+// pixel footprint (m) at the current sample; set by the caller before density lookups
+float gFoot = 0.0;
+float lodFor(float texel) { return max(log2(max(gFoot, 1e-3) / texel), 0.0); }
 uniform vec4 uFlash;          // lightning position xyz (m), intensity
 uniform vec3 uFlashColor;
 const float RG_M = 6360000.0;
@@ -130,7 +134,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     if (R.y < 0.5 || h < SCUD_BASE) return 0.0;
     float sh = (h - SCUD_BASE) / max(base - SCUD_BASE, 1.0);
     vec3 sp2 = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z) * 1.8) / vec3(1400.0, 500.0, 1400.0);
-    vec4 n2 = texture(uShape, sp2);
+    vec4 n2 = textureLod(uShape, sp2, lodFor(1400.0 / 128.0));
     float frag = n2.r * 0.7 + n2.g * 0.3;
     float d2 = smoothstep(0.8, 0.93, frag) * smoothstep(0.0, 0.35, sh) * (1.0 - smoothstep(0.55, 1.0, sh));
     return d2 * R.z * 0.6 * (R.y - 0.5) * 2.0;
@@ -139,13 +143,13 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   float hf = (h - base) / (top - base);
   float cov = R.x, dark = R.y;
   vec2 wuv = (p.xz + uWindOffset.xz) / 30000.0;
-  vec4 wm = texture(uWeather, wuv);
+  vec4 wm = textureLod(uWeather, wuv, lodFor(30000.0 / 512.0));
   float c = smoothstep(1.0 - cov - 0.18, 1.0 - cov + 0.2, wm.r * 0.85 + wm.b * 0.25 * cov);
   // an overcast deck is closed: no column-shaped gaps from the 2D coverage map
   c = max(c, smoothstep(0.82, 0.96, cov));
   if (c <= 0.001) return 0.0;
   vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / 3000.0;
-  vec4 n = uShapeLod < 0.0 ? texture(uShape, sp) : textureLod(uShape, sp, uShapeLod);
+  vec4 n = textureLod(uShape, sp, uShapeLod < 0.0 ? lodFor(3000.0 / 128.0) : uShapeLod);
   float wf = n.g * 0.625 + n.b * 0.25 + n.a * 0.125;
   // vertical profile. Fair weather: cumulus towers with type-dependent tops.
   // Storm: a layer deck whose base undulates (rolls, scud) and whose thickness varies 2-3x,
@@ -161,7 +165,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   if (d <= 0.0) return 0.0;
   if (detail) {
     vec3 dp = (p + uWindOffset * vec3(1.15, 1.0, 1.15)) / 420.0;
-    vec3 dn = texture(uDetail, dp).rgb;
+    vec3 dn = textureLod(uDetail, dp, lodFor(420.0 / 32.0)).rgb;
     float df = dn.r * 0.625 + dn.g * 0.25 + dn.b * 0.125;
     // wispy at the base, billowy towards the tops
     float dm = mix(df, 1.0 - df, clamp(hf * 5.0, 0.0, 1.0));
@@ -227,6 +231,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
   for (int i = 0; i < 220; i++) {
     if (i >= steps * 2 || T < 0.02 || t > t1) break;
     vec3 p = ro + rd * t;
+    gFoot = t * uPixelAngle;
     float h = heightOf(p);
     float base, top;
     vec4 R = regime(p.xz, base, top);
@@ -410,6 +415,7 @@ void main() {
   vec3 L = normalize(vec3(uSunDir.x, max(uSunDir.y, 0.03), uSunDir.z));
   float tb = shellBase() / L.y, tt = shellTop() / L.y;
   float tau = 0.0;
+  gFoot = uRect.z / 256.0;
   const int N = 16;
   float dt = (tt - tb) / float(N);
   for (int i = 0; i < N; i++) {
@@ -454,7 +460,10 @@ export class Clouds {
 
   resize(w, h, div = 2) {
     const gl = this.gl;
-    this.w = Math.ceil(w / div); this.h = Math.ceil(h / div);
+    const nw = Math.ceil(w / div), nh = Math.ceil(h / div);
+    if (this.tex && nw === this.w && nh === this.h) return;
+    if (this.targets) this.targets.forEach((t) => t.dispose(true));
+    this.w = nw; this.h = nh;
     this.tex = [0, 1].map(() => new Texture(gl, { w: this.w, h: this.h, format: 'rgba16f' }));
     this.targets = this.tex.map((t) => new Target(gl, [t]));
     this.cur = 0;
@@ -478,15 +487,17 @@ export class Clouds {
     const texel = this.shadowSize / 256;
     const ox = Math.floor((cam.pos[0] - this.shadowSize / 2) / texel) * texel;
     const oz = Math.floor((cam.pos[2] - this.shadowSize / 2) / texel) * texel;
-    this.shadowRect = [ox, oz, 1 / this.shadowSize, 1 / this.shadowSize];
     const full = this.reset || this.frame < 4 || u.everyFrame;
-    if (full || this.frame % 2 === 0) fullscreen(gl, this.pShadow, { ...cu, uSunDir: skyU.uSunDir, uRect: [ox, oz, this.shadowSize, 0] }, this.shadowTarget);
+    if (full || this.frame % 2 === 0 || !this.shadowRect) {
+      fullscreen(gl, this.pShadow, { ...cu, uSunDir: skyU.uSunDir, uRect: [ox, oz, this.shadowSize, 0] }, this.shadowTarget);
+      this.shadowRect = [ox, oz, 1 / this.shadowSize, 1 / this.shadowSize];
+    }
 
     const amb = { uAmbTop: u.ambTop || [1, 1, 1], uAmbBot: u.ambBot || [1, 1, 1] };
     // reflection probe clouds (amortised via history blend)
     const en = 1 - this.envCur;
     if (full || this.frame % 2 === 1 || u.flash[3] > 0.01) {
-    fullscreen(gl, this.pEnv, { ...skyU, ...cu, ...amb, uCamPos: cam.pos, uFrame: this.reset ? 0 : this.frame, uHistory: this.envTex[this.envCur] }, this.envTargets[en]);
+    fullscreen(gl, this.pEnv, { ...skyU, ...cu, ...amb, uCamPos: cam.pos, uFrame: this.reset ? 0 : this.frame, uHistory: this.envTex[this.envCur], uPixelAngle: (2 * Math.PI) / this.envTex[0].w }, this.envTargets[en]);
     this.envCur = en;
     }
 
@@ -495,7 +506,7 @@ export class Clouds {
       ...skyU, ...cu, ...amb,
       uInvViewProj: cam.inv, uPrevViewProj: this.prevVP || cam.vp, uCamPos: cam.pos,
       uHistory: this.tex[this.cur], uFrame: this.frame % 64, uBlend: this.reset ? 1 : u.blend ?? 0.2,
-      uSteps: u.steps ?? 64, uLightSteps: u.lightSteps ?? 6, uLightDetail: u.lightDetail ?? 3, uCheck: u.check ? 1 : 0,
+      uPixelAngle: (cam.fov || 0.75) / this.h, uSteps: u.steps ?? 64, uLightSteps: u.lightSteps ?? 6, uLightDetail: u.lightDetail ?? 3, uCheck: u.check ? 1 : 0,
     }, this.targets[next]);
     this.cur = next;
     this.prevVP = cam.vp;

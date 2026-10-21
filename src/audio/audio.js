@@ -72,7 +72,6 @@ export class AudioEngine {
 
   // Build the graph on a context (live or offline).
   async init(ctx) {
-    this.ctx = ctx;
     await this.loadBuffers(ctx);
     const out = ctx.createDynamicsCompressor();
     out.threshold.value = -14; out.knee.value = 12; out.ratio.value = 3; out.attack.value = 0.01; out.release.value = 0.4;
@@ -108,7 +107,7 @@ export class AudioEngine {
     this.slapBuf = burstBuffer(ctx, 0.45, 0.004, 0.11, 21);
     this.whooshBuf = burstBuffer(ctx, 2.2, 0.35, 0.9, 33);
     this.scheduledUntil = 0;
-    this.thunderQueue = [];
+    this.ctx = ctx; // published last: tick()/thunder() treat a set ctx as a complete graph
   }
 
   set(p) { Object.assign(this.params, p); }

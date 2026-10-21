@@ -13,7 +13,8 @@ uniform mat4 uViewProj;
 uniform vec3 uCamPos;
 uniform vec3 uBox;                    // box size (m)
 uniform float uTime;
-uniform vec2 uWind;                   // horizontal wind (m/s)
+uniform vec2 uWind;                   // horizontal wind (m/s), for the streak direction
+uniform vec2 uDrift;                  // integrated horizontal drift (m): positions stay coherent as the wind changes
 uniform float uExposure;              // shutter time (s)
 uniform float uLambda;                // Marshall-Palmer slope (1/mm)
 uniform float uCount;                 // active fraction
@@ -31,8 +32,11 @@ void main() {
   float D = clamp(-log(1.0 - u * 0.985) / uLambda + 0.35, 0.35, 5.0);
   float v = 9.65 - 10.3 * exp(-0.6 * D);
   vec3 vel = vec3(uWind.x, -v, uWind.y);
+  // fall speed for the position comes from a fixed per-drop size (independent of the rain rate)
+  float Dk = 0.35 - log(1.0 - u * 0.985) / 2.0;
+  float vk = 9.65 - 10.3 * exp(-0.6 * Dk);
   // world-anchored positions wrapped into a camera-centred box (no swimming when moving)
-  vec3 p = aSeed.xyz * uBox + vel * uTime;
+  vec3 p = aSeed.xyz * uBox + vec3(uDrift.x, -vk * uTime, uDrift.y);
   vec3 rel = mod(p - uCamPos + uBox * 0.5, uBox) - uBox * 0.5;
   rel.y += uBox.y * 0.5 - 2.0;
   vec3 head = uCamPos + rel;
@@ -101,9 +105,9 @@ void main() {
   float ph = fract(tt);
   float life = 0.45;
   // new random spot each cycle, uniformly over a disc around the camera
-  float r = sqrt(h1(cyc * 1.7 + aSeed.y * 91.0)) * uRadius;
-  float a = h1(cyc * 3.1 + aSeed.x * 57.0) * 6.2831853;
-  vec2 xz = floor(uCamPos.xz) + vec2(cos(a), sin(a)) * r;
+  // world-anchored spots, wrapped into a square around the camera
+  vec2 o = (vec2(h1(cyc * 1.7 + aSeed.y * 91.0), h1(cyc * 3.1 + aSeed.x * 57.0)) * 2.0 - 1.0) * uRadius;
+  vec2 xz = uCamPos.xz + mod(o - uCamPos.xz + uRadius, 2.0 * uRadius) - uRadius;
   vec3 D = textureLod(uDisp[0], xz / uSize[0], 2.0).xyz + textureLod(uDisp[1], xz / uSize[1], 2.0).xyz + textureLod(uDisp[2], xz / uSize[2], 1.0).xyz;
   vec3 base = vec3(xz.x + D.x, D.y, xz.y + D.z);
   float t = ph / life;
@@ -134,7 +138,7 @@ void main() {
 }`;
 
 export class Rain {
-  constructor(gl, { drops = 120000, splashes = 12000 } = {}) {
+  constructor(gl, { drops = 120000, splashes = 15300 } = {}) {
     this.gl = gl;
     this.drops = drops;
     this.splashes = splashes;
@@ -182,7 +186,7 @@ export class Rain {
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.splashes);
     this.pStreak.use({
       ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uBox: [36, 22, 36], uTime: u.time,
-      uWind: u.wind, uExposure: u.exposure, uLambda: lambda, uCount: Math.min(Math.sqrt(u.rain) * 1.05, 1),
+      uWind: u.wind, uDrift: u.drift || [0, 0], uExposure: u.exposure, uLambda: lambda, uCount: Math.min(Math.sqrt(u.rain) * 1.05, 1),
       uViewport: u.viewport, uPixelAngle: u.pixelAngle, uEnv: u.env, uFlash: u.flash, uGain: u.gain ?? 9,
     });
     gl.bindVertexArray(this.vaoDrops);

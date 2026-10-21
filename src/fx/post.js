@@ -179,6 +179,7 @@ export class Post {
 
   resize(w, h) {
     const gl = this.gl;
+    for (const lv of this.levels) { lv.target.dispose(); lv.tex.dispose(); }
     this.levels = [];
     let lw = w >> 1, lh = h >> 1;
     for (let i = 0; i < 7 && lw > 4 && lh > 4; i++) {

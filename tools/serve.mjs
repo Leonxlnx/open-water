@@ -1,7 +1,7 @@
 // Tiny zero-dependency static server for local development and offline rendering.
 import { createServer } from 'node:http';
 import { readFile, stat } from 'node:fs/promises';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = normalize(join(fileURLToPath(import.meta.url), '..', '..'));
@@ -31,7 +31,7 @@ createServer(async (req, res) => {
     let path = decodeURIComponent(url.pathname);
     if (path.endsWith('/')) path += 'index.html';
     const file = normalize(join(root, path));
-    if (!file.startsWith(root)) { res.writeHead(403).end(); return; }
+    if (file !== root && !file.startsWith(root.endsWith(sep) ? root : root + sep)) { res.writeHead(403).end(); return; }
     const info = await stat(file);
     if (!info.isFile()) { res.writeHead(404).end(); return; }
     const body = await readFile(file);

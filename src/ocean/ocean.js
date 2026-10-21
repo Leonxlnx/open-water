@@ -52,7 +52,8 @@ float elfouhaily(float k, float U, float fetch, out float kp, out float delta) {
   float Fp = Lpm * Jp * exp(-Om / sqrt(10.0) * r);
   float Bl = 0.5 * 0.006 * pow(Om, 0.55) * (cp / c) * Fp;
   float ustar = 0.03795 * U; // sqrt(Cd10N = 0.00144) * U10
-  float alpham = ustar <= cm ? 0.01 * (1.0 + log(ustar / cm)) : 0.01 * (1.0 + 3.0 * log(ustar / cm));
+  // clamped: no capillary-gravity energy below ~2.2 m/s (the fit goes negative there)
+  float alpham = max(ustar <= cm ? 0.01 * (1.0 + log(ustar / cm)) : 0.01 * (1.0 + 3.0 * log(ustar / cm)), 0.0);
   float Fm = Lpm * Jp * exp(-0.25 * (k / km - 1.0) * (k / km - 1.0));
   float Bh = 0.5 * alpham * (cm / c) * Fm;
   delta = tanh(0.1733 + 4.0 * pow(c / cp, 2.5) + 0.13 * ustar / cm * pow(cm / c, 2.5));
@@ -120,8 +121,8 @@ void main() {
   vec2 xi = texelFetch(uNoise, id, 0).xy;
   vec2 xm = texelFetch(uNoise, mid, 0).xy;
   // E|h0|^2 = S(k) dk^2 / 2 so that the real field variance equals the spectrum integral.
-  float a0 = sqrt(spectrum(k) * dk * dk * 0.25);
-  float am = sqrt(spectrum(-k) * dk * dk * 0.25);
+  float a0 = sqrt(max(spectrum(k), 0.0) * dk * dk * 0.25);
+  float am = sqrt(max(spectrum(-k), 0.0) * dk * dk * 0.25);
   vec2 h0 = xi * a0;
   vec2 hm = xm * am;
   o = vec4(h0, hm.x, -hm.y); // h0(k), conj(h0(-k))
@@ -139,8 +140,11 @@ void main() {
   vec2 k = (vec2(id) - n * 0.5) * (2.0 * PI / uL);
   float kl = max(length(k), 1e-6);
   vec4 h0 = texelFetch(uH0, id, 0);
-  float ph = omegaOf(kl) * uTime;
-  vec2 e = vec2(cos(ph), sin(ph));
+  // dispersion quantised to a 1000 s repeat period (Tessendorf) keeps the fp32 phase small
+  const float W0 = 2.0 * PI / 1000.0;
+  float ph = floor(omegaOf(kl) / W0) * W0 * uTime;
+  // exp(-i w t) with field exp(+i k.x): energy at k travels towards +k (downwind)
+  vec2 e = vec2(cos(ph), -sin(ph));
   vec2 h = cmul(h0.xy, e) + cmul(h0.zw, vec2(e.x, -e.y));
   vec2 ih = vec2(-h.y, h.x);
   vec2 Dx = ih * (k.x / kl);
@@ -314,7 +318,7 @@ export class Ocean {
       const gain = foam[1] / Math.max(sigmaJ, 0.02);
       const F = this.fft[c.N];
       const stages = Math.log2(c.N);
-      fullscreen(gl, this.progEvolve, { uH0: c.h0, uL: c.L, uTime: time }, F.tA);
+      fullscreen(gl, this.progEvolve, { uH0: c.h0, uL: c.L, uTime: ((time % 1000) + 1000) % 1000 }, F.tA);
       P && P.section('o.fft');
       let src = F.A, dst = F.tB, dstT = F.B;
       for (let dir = 0; dir < 2; dir++) {
@@ -363,7 +367,7 @@ function elfouhailyCPU(k, U, fetch) {
   const Jp = Math.pow(gamma, Math.exp((-r * r) / (2 * sigma * sigma)));
   const Bl = 0.5 * 0.006 * Math.pow(Om, 0.55) * (cp / c) * Lpm * Jp * Math.exp((-Om / Math.sqrt(10)) * r);
   const ustar = 0.03795 * U;
-  const am = ustar <= cm ? 0.01 * (1 + Math.log(ustar / cm)) : 0.01 * (1 + 3 * Math.log(ustar / cm));
+  const am = Math.max(ustar <= cm ? 0.01 * (1 + Math.log(ustar / cm)) : 0.01 * (1 + 3 * Math.log(ustar / cm)), 0);
   const Bh = 0.5 * am * (cm / c) * Lpm * Jp * Math.exp(-0.25 * (k / km - 1) ** 2);
   return { S: (Bl + Bh) / k ** 3, kp };
 }

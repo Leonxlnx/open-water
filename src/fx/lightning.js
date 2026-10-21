@@ -142,8 +142,9 @@ export class Lightning {
       s.t += dt;
       let i = 0;
       for (const t0 of s.times) {
-        const dtk = s.t - t0;
-        if (dtk >= 0) i += Math.exp(-dtk / 0.028) + 0.25 * Math.exp(-dtk / 0.15);
+        // average of the stroke's decay over this frame's exposure [s.t - dt, s.t]
+        const a = Math.max(s.t - dt - t0, 0), b = s.t - t0;
+        if (b > 0) i += (0.028 * (Math.exp(-a / 0.028) - Math.exp(-b / 0.028)) + 0.25 * 0.15 * (Math.exp(-a / 0.15) - Math.exp(-b / 0.15))) / Math.max(dt, 1e-4);
       }
       // stepped-leader flicker before the first stroke
       this.flash = Math.min(i, 2.5) * s.peak;

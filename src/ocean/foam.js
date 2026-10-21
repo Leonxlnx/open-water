@@ -90,7 +90,6 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float dist) {
   vec2 p = vec2(dot(xz, w), dot(xz, vec2(-w.y, w.x)));
   // derivatives first: they must be evaluated in uniform control flow
   vec2 dpx = dFdx(p), dpy = dFdy(p);
-  if (f < 0.003 && lace < 0.003) return vec2(0.0);
   vec4 a = texture(uFoamTex, p / 5.5);
   vec4 b = texture(uFoamTex, p / 1.9 + vec2(0.37, 0.71));
   vec4 s = texture(uFoamTex, vec2(p.x / 45.0, p.y / 15.0) + vec2(0.13, 0.5));
@@ -99,11 +98,19 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float dist) {
   // multi-scale threshold: the large component makes patch outlines ragged at metre scale
   float T = big.r * 0.4 + a.r * 0.38 + b.r * 0.22;
   T = mix(T, mix(T, s.b * 0.8 + big.g * 0.25, 0.45), uFoamStretch);
+  vec2 dT = vec2(dFdx(T), dFdy(T));
+  float fwT = abs(dT.x) + abs(dT.y);
+  vec2 pl = vec2(p.x / (1.0 + 2.2 * uFoamStretch), p.y);
+  float va = texture(uFoamTex, pl / 4.2 + vec2(0.21, 0.83)).a;
+  float vb = texture(uFoamTex, pl / 1.5 + vec2(0.57, 0.11)).a;
+  float vein = va * 0.6 + vb * 0.4;
+  float fwV = fwidth(vein);
+  if (f < 0.003 && lace < 0.003) return vec2(0.0);
   float F = (1.0 - exp(-f * 1.5)) * 0.92;
   // fresh foam is a dense mass; decaying foam opens up along the threshold field.
   // Bubble noise dithers the boundary so it reads as a froth edge, not a painted outline.
   float margin = F * 1.15 - T + (b.g - 0.5) * 0.16 * min(F * 4.0, 1.0);
-  float edge = 0.09 + fwidth(T) * 0.7;
+  float edge = 0.09 + fwT * 0.7;
   // gated by density: a trace of foam must not light up the threshold field's thin veins
   float cov = clamp(margin / edge, 0.0, 1.0) * smoothstep(0.015, 0.1, F);
   // far away: sub-pixel structure averages out to the expected (energy-conserving) coverage
@@ -113,13 +120,9 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float dist) {
   // residual lace: thin vein lines, stretched along the wind, thicker as the gale strengthens
   float lc = 0.0;
   if (lace > 0.003) {
-    vec2 pl = vec2(p.x / (1.0 + 2.2 * uFoamStretch), p.y);
-    float va = texture(uFoamTex, pl / 4.2 + vec2(0.21, 0.83)).a;
-    float vb = texture(uFoamTex, pl / 1.5 + vec2(0.57, 0.11)).a;
-    float vein = va * 0.6 + vb * 0.4;
     // lace persists where whitecaps broke recently (old foam f) and in wind-row patches (big.b)
     float rafts = smoothstep(0.22, 0.6, big.b * 0.7 + clamp(f * 3.0, 0.0, 1.0) * 0.6);
-    float wid = (0.04 + lace * 0.16) * (0.5 + rafts) + fwidth(vein) * 0.6;
+    float wid = (0.04 + lace * 0.16) * (0.5 + rafts) + fwV * 0.6;
     lc = (1.0 - smoothstep(wid * 0.4, wid, vein)) * smoothstep(0.0, 0.08, lace) * rafts;
     lc = mix(lc, lace * 0.3 * rafts, far);
   }
@@ -132,7 +135,7 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float dist) {
   // recovered from screen derivatives, for side-lit shading of the foam
   mat2 Mj = mat2(dpx.x, dpy.x, dpx.y, dpy.y);
   float det = determinant(Mj);
-  vec2 grad = abs(det) > 1e-12 ? inverse(Mj) * vec2(dFdx(T), dFdy(T)) : vec2(0.0);
+  vec2 grad = abs(det) > 1e-12 ? inverse(Mj) * dT : vec2(0.0);
   grad = clamp(grad * 0.15, vec2(-1.5), vec2(1.5)) * (1.0 - far);
   foamBump = grad.x * w + grad.y * vec2(-w.y, w.x);
   // lace is a thin translucent bubble film

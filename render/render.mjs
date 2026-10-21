@@ -6,7 +6,8 @@ import { writeFile, mkdir } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { launch, openApp } from '../tools/browser.mjs';
 
-const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1]]] : a), []));
+const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, arr) => (v.startsWith('--') ? [...a, [v.slice(2), arr[i + 1] !== undefined && !arr[i + 1].startsWith('--') ? arr[i + 1] : 'true']] : a), []));
+const wavOf = (p) => { const w = p.replace(/\.[^.\\/]+$/, '') + '.wav'; return w === p ? p + '.audio.wav' : w; };
 const fps = Number(args.fps || 60);
 const W = Number(args.w || 1920), H = Number(args.h || 1080);
 const from = Number(args.from || 0), to = Number(args.to || 60);
@@ -29,7 +30,7 @@ try {
       for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
       return btoa(s);
     });
-    const wav = out.replace(/\.mp4$/, '.wav');
+    const wav = wavOf(out);
     await writeFile(wav, Buffer.from(b64, 'base64'));
     await new Promise((res) => spawn('ffmpeg', ['-y', '-loglevel', 'error', '-i', resolve(args.remux), '-i', wav, '-map', '0:v', '-map', '1:a', '-c:v', 'copy',
       '-af', 'alimiter=limit=0.84:attack=3:release=60:level=disabled', '-c:a', 'aac', '-b:a', '256k', '-shortest', '-movflags', '+faststart', out], { stdio: 'inherit' }).on('close', res));
@@ -38,7 +39,7 @@ try {
   }
 
   // soundtrack first (fast), then frames
-  const wavPath = out.replace(/\.mp4$/, '.wav');
+  const wavPath = wavOf(out);
   if (!args.noaudio) {
     const b64 = await page.evaluate(async () => {
       const buf = new Uint8Array(await app.filmAudio());

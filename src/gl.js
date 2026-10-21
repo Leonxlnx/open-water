@@ -99,7 +99,7 @@ export class Program {
     if (!u || v === undefined) return;
     const gl = this.gl;
     switch (u.type) {
-      case gl.FLOAT: u.size > 1 ? gl.uniform1fv(u.loc, v) : gl.uniform1f(u.loc, v); break;
+      case gl.FLOAT: (Array.isArray(v) || ArrayBuffer.isView(v)) ? gl.uniform1fv(u.loc, Array.from(v).slice(0, u.size)) : gl.uniform1f(u.loc, v); break;
       case gl.FLOAT_VEC2: gl.uniform2fv(u.loc, v); break;
       case gl.FLOAT_VEC3: gl.uniform3fv(u.loc, v); break;
       case gl.FLOAT_VEC4: gl.uniform4fv(u.loc, v); break;
@@ -109,7 +109,7 @@ export class Program {
       case gl.FLOAT_MAT4: gl.uniformMatrix4fv(u.loc, false, v); break;
       default:
         if (isSampler(gl, u.type)) {
-          const list = Array.isArray(v) ? v : [v];
+          const list = (Array.isArray(v) ? v : [v]).slice(0, u.size);
           list.forEach((t, j) => {
             gl.activeTexture(gl.TEXTURE0 + u.unit + j);
             gl.bindTexture(samplerTarget(gl, u.type), t && t.tex ? t.tex : t);
@@ -172,6 +172,7 @@ export class Texture {
     if (this.d) gl.texSubImage3D(this.target, 0, 0, 0, 0, this.w, this.h, this.d, this.fmt, type, data);
     else gl.texSubImage2D(this.target, 0, 0, 0, this.w, this.h, this.fmt, type, data);
   }
+  dispose() { this.gl.deleteTexture(this.tex); }
   genMips() {
     const gl = this.gl;
     gl.bindTexture(this.target, this.tex);
@@ -207,35 +208,64 @@ export class Target {
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
     gl.viewport(0, 0, this.w, this.h);
   }
+  dispose(withTextures = false) {
+    const gl = this.gl;
+    gl.deleteFramebuffer(this.fbo);
+    if (this.depth) gl.deleteRenderbuffer(this.depth);
+    if (withTextures) this.textures.forEach((t) => t.dispose());
+  }
 }
 
-// Multisampled HDR color + depth that resolves into a texture.
+// Multisampled HDR color + depth that resolves into a texture. Drivers differ in which float
+// formats they can multisample, so `formats` is a preference list: the first combination of
+// format and sample count that gives a complete framebuffer wins (this.format reports it; the
+// resolve target must use the same format).
 export class MSTarget {
-  constructor(gl, w, h, samples, format = 'rgba16f') {
+  constructor(gl, w, h, samples, formats = ['rgba16f']) {
     this.gl = gl;
     this.w = w; this.h = h;
-    const [ifmt] = FORMATS[format];
-    const supported = Array.from(gl.getInternalformatParameter(gl.RENDERBUFFER, gl[ifmt], gl.SAMPLES) || []);
-    const ok = supported.filter((s) => s <= samples);
-    this.samples = ok.length ? Math.max(...ok) : 0;
-    this.fbo = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
-    this.color = gl.createRenderbuffer();
-    gl.bindRenderbuffer(gl.RENDERBUFFER, this.color);
-    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, this.samples, gl[ifmt], w, h);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, this.color);
-    this.depth = gl.createRenderbuffer();
-    gl.bindRenderbuffer(gl.RENDERBUFFER, this.depth);
-    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, this.samples, gl.DEPTH_COMPONENT24, w, h);
-    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, this.depth);
-    const st = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
-    if (st !== gl.FRAMEBUFFER_COMPLETE) throw new Error('ms framebuffer incomplete: 0x' + st.toString(16));
+    const list = Array.isArray(formats) ? formats : [formats];
+    for (const format of list) {
+      const [ifmt] = FORMATS[format];
+      const supported = Array.from(gl.getInternalformatParameter(gl.RENDERBUFFER, gl[ifmt], gl.SAMPLES) || []);
+      const counts = [...new Set([...supported.filter((s) => s <= samples).sort((a, b) => b - a), 0])];
+      for (const n of counts) {
+        if (this.tryCreate(gl[ifmt], n)) { this.format = format; this.samples = n; return; }
+      }
+    }
+    throw new Error('no renderable HDR framebuffer format (' + list.join(', ') + ')');
+  }
+  tryCreate(ifmt, samples) {
+    const gl = this.gl;
+    const fbo = gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    const color = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, color);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, ifmt, this.w, this.h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, color);
+    const depth = gl.createRenderbuffer();
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depth);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.DEPTH_COMPONENT24, this.w, this.h);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, depth);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (!ok) {
+      gl.deleteFramebuffer(fbo); gl.deleteRenderbuffer(color); gl.deleteRenderbuffer(depth);
+      return false;
+    }
+    this.fbo = fbo; this.color = color; this.depth = depth;
+    return true;
   }
   bind() {
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, this.fbo);
     gl.viewport(0, 0, this.w, this.h);
+  }
+  dispose() {
+    const gl = this.gl;
+    gl.deleteFramebuffer(this.fbo);
+    gl.deleteRenderbuffer(this.color);
+    gl.deleteRenderbuffer(this.depth);
   }
   resolve(target) {
     const gl = this.gl;

@@ -75,10 +75,13 @@ export class App {
     h = h || Math.round(this.canvas.clientHeight * this.scale);
     if (w === this.w && h === this.h) return;
     this.w = w; this.h = h;
+    this.ms?.dispose();
+    this.hdrTarget?.dispose();
+    this.hdr?.dispose();
     this.canvas.width = w; this.canvas.height = h;
-    this.ms = new MSTarget(gl, w, h, this.msaa, QUALITY.hdr);
+    this.ms = new MSTarget(gl, w, h, this.msaa, [QUALITY.hdr, 'rgba16f']);
     // the resolve target must match the multisample format exactly (blit resolve rule)
-    this.hdr = new Texture(gl, { w, h, format: QUALITY.hdr });
+    this.hdr = new Texture(gl, { w, h, format: this.ms.format });
     this.hdrTarget = new Target(gl, [this.hdr]);
     this.post.resize(w, h);
     this.clouds.resize(w, h, QUALITY.cloudDiv);
@@ -223,7 +226,7 @@ export class App {
       shapeLod: params.has('shapelod') ? Number(params.get('shapelod')) : -1,
     };
     P.section('clouds');
-    this.clouds.render(skyU, cloudU, { pos: this.cam.pos, inv: M.inv, vp: M.vp });
+    this.clouds.render(skyU, cloudU, { pos: this.cam.pos, inv: M.inv, vp: M.vp, fov: this.cam.fov });
     P.section('env');
     // crepuscular rays: haze scattering below the cloud base, shadowed by the cloud-shadow map
     Object.assign(skyU, {
@@ -259,15 +262,18 @@ export class App {
     this.water.draw(this.waterUniforms);
 
     P.section('rain');
+    this.rainDrift = this.rainDrift || [0, 0];
+    this.rainDrift[0] += Math.cos(wd) * S.wind * 0.8 * dt;
+    this.rainDrift[1] += Math.sin(wd) * S.wind * 0.8 * dt;
     const pixelAngle = this.cam.fov / this.h;
     const fxU = { viewProj: M.vp, camPos: this.cam.pos, pixelAngle };
     this.lightning.draw({ ...fxU, fogDensity });
     const windVec = [Math.cos(wd) * S.wind, Math.sin(wd) * S.wind];
-    this.spray.draw({ ...fxU, skyU, time: t, wind: S.wind, windVec, disp: ot.disp.slice(0, 3), sizes: ot.sizes, flash: flashRGB });
+    this.spray.draw({ ...fxU, skyU, anchor: this.cam.base, time: t, wind: S.wind, windVec, disp: ot.disp.slice(0, 3), sizes: ot.sizes, flash: flashRGB });
     this.rain.draw({
       ...fxU, skyU, rain: L.rain, time: t, exposure: 1 / 60,
       wind: [Math.cos(wd) * S.wind * 0.8, Math.sin(wd) * S.wind * 0.8],
-      viewport: [this.w, this.h], env: this.sky.env, flash: flashRGB,
+      viewport: [this.w, this.h], env: this.sky.env, flash: flashRGB, drift: this.rainDrift,
       disp: ot.disp.slice(0, 3), sizes: ot.sizes,
     });
     gl.disable(gl.DEPTH_TEST);
@@ -285,30 +291,35 @@ export class App {
   }
 
   // Film: drive weather + camera from the timeline at time t (seconds), deterministic.
-  filmFrame(t, dt) {
-    const act = film.actAt(Math.max(t, 0));
+  filmFrame(t, dt, hold) {
+    // hold: sample the timeline at this time while the clock (waves, foam, clouds) runs on t
+    const tl = Math.max(hold ?? t, 0);
+    const act = film.actAt(tl);
     if (this.filmAct !== undefined && act !== this.filmAct) {
       // new shot: settle foam, clouds and camera filters off-screen (during the dip to black)
       this.filmAct = act;
       const t0 = film.acts[act].start;
-      for (let w = t0 - 3; w < t0 - dt / 2; w += dt) this.filmFrame(w < t0 ? t0 : w, dt);
+      for (let w = t0 - 3; w < t0 - dt / 2; w += dt) this.filmFrame(w, dt, t0);
     }
     this.filmAct = act;
-    this.fade = film.fadeAt(t);
+    this.fade = film.fadeAt(tl);
     const W = this.weather;
-    const w = film.weatherAt(Math.max(t, 0));
+    const w = film.weatherAt(tl);
     for (const k in w) {
       if (k in W.time) { W.time[k] = w[k]; W.timeTarget[k] = w[k]; }
       else { W.state[k] = w[k]; W.target[k] = w[k]; }
     }
     W.transition = 1e-6;
-    const c = film.cameraAt(Math.max(t, 0));
+    const c = film.cameraAt(tl);
     this.cam.yaw = (c.yaw * Math.PI) / 180;
     this.cam.pitch = (c.pitch * Math.PI) / 180;
     this.cam.eye = c.eye;
     this.cam.fov = (c.fov * Math.PI) / 180;
+    // strikes fire once when the timeline passes them (robust to float time steps and repeats)
+    const prev = this.filmPrevT ?? t - dt;
+    if (hold === undefined) this.filmPrevT = t;
     for (const s of film.strikes) {
-      if (s.t > t - dt && s.t <= t) this.lightning.trigger(this.cam, { dist: s.dist, az: this.cam.yaw + s.rel, ground: s.ground, base: W.state.cloudBase });
+      if (hold === undefined && s.t > prev && s.t <= t) this.lightning.trigger(this.cam, { dist: s.dist, az: this.cam.yaw + s.rel, ground: s.ground, base: W.state.cloudBase });
     }
     this.time = t - dt;
     this.frame(dt);
@@ -380,7 +391,8 @@ const audio = {
       foam: Math.min(2 * 3.84e-6 * Math.pow(S.wind, 3.41), 0.4),
     });
     e.tick();
-    for (const ev of app.thunderEvents || []) e.thunder(this.ctx.currentTime, ev.dist, ev.power);
+    // muted (suspended) context: drop thunder instead of queueing it for the unmute
+    if (this.ctx.state === 'running') for (const ev of app.thunderEvents || []) e.thunder(this.ctx.currentTime, ev.dist, ev.power);
   },
 };
 

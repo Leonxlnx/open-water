@@ -339,8 +339,10 @@ vec3 starField(vec3 d, float pixelAngle, float time) {
   for (int i = 0; i < 8; i++) {
     vec3 cell = base + vec3(float(i & 1), float((i >> 1) & 1), float((i >> 2) & 1));
     float h = starHash(cell);
-    if (h > 0.055) continue;
+    if (h > 0.14) continue;
     vec3 sp = normalize(cell + 0.15 + 0.7 * vec3(starHash(cell + 11.1), starHash(cell + 23.7), starHash(cell + 37.3)));
+    // keep only stars whose projection stays in their own cell (the search covers +-1/2 cell)
+    if (any(notEqual(floor(sp * K), cell))) continue;
     vec3 x = cross(sp, d);
     float ang2 = dot(x, x);
     if (ang2 > 36.0 * sigma * sigma) continue;
@@ -359,7 +361,7 @@ vec3 starField(vec3 d, float pixelAngle, float time) {
   float band = exp(-b * b / 0.035);
   float n = starHash(floor(d * 60.0)) * 0.35 + 0.65;
   float dust = smoothstep(0.0, 0.08, abs(b + 0.03 * sin(d.x * 9.0 + d.z * 5.0)));
-  acc += vec3(0.85, 0.88, 1.0) * band * n * mix(0.35, 1.0, dust) * 2.5e-10 * pow(10.0, 0.4 * (-26.74 - uLightMag));
+  acc += vec3(0.85, 0.88, 1.0) * band * n * mix(0.35, 1.0, dust) * 2.5e-10 * pow(10.0, 0.4 * (uLightMag + 26.74));
   return acc * transmittanceAt(0.0, max(d.y, 0.0));
 }
 // Rain / mist below the cloud deck: extinction uFogDensity (1/m) up to uFogTop (m).

@@ -82,7 +82,7 @@ float Lambda(float cosTheta, float sigmaSq) {
   return max(0.0, (exp(-v * v) - v * sqrt(M_PI) * erfc_(v)) / (2.0 * v * sqrt(M_PI)));
 }
 float meanFresnel(float cosThetaV, float sigmaV) {
-  return pow(1.0 - cosThetaV, 5.0 * exp(-2.69 * sigmaV)) / (1.0 + 22.7 * pow(sigmaV, 1.5));
+  return pow(max(1.0 - cosThetaV, 0.0), 5.0 * exp(-2.69 * sigmaV)) / (1.0 + 22.7 * pow(sigmaV, 1.5));
 }
 float reflectedSun(vec3 L, vec3 V, vec3 N, vec3 Tx, vec3 Ty, vec2 sigmaSq) {
   vec3 H = normalize(L + V);
@@ -92,15 +92,15 @@ float reflectedSun(vec3 L, vec3 V, vec3 N, vec3 Tx, vec3 Ty, vec2 sigmaSq) {
   float zetay = dot(H, Ty) / zH;
   float zL = dot(L, N), zV = dot(V, N);
   float p = exp(-0.5 * (zetax * zetax / sigmaSq.x + zetay * zetay / sigmaSq.y)) / (2.0 * M_PI * sqrt(sigmaSq.x * sigmaSq.y));
-  float tanV = atan(dot(V, Ty), dot(V, Tx));
-  float cosV2 = 1.0 / (1.0 + tanV * tanV);
+  vec2 tv = vec2(dot(V, Tx), dot(V, Ty));
+  float cosV2 = tv.x * tv.x / max(dot(tv, tv), 1e-12);
   float sigmaV2 = sigmaSq.x * cosV2 + sigmaSq.y * (1.0 - cosV2);
-  float tanL = atan(dot(L, Ty), dot(L, Tx));
-  float cosL2 = 1.0 / (1.0 + tanL * tanL);
+  vec2 tl = vec2(dot(L, Tx), dot(L, Ty));
+  float cosL2 = tl.x * tl.x / max(dot(tl, tl), 1e-12);
   float sigmaL2 = sigmaSq.x * cosL2 + sigmaSq.y * (1.0 - cosL2);
-  float fresnel = 0.02 + 0.98 * pow(1.0 - dot(V, H), 5.0);
-  zL = max(zL, 0.01);
-  zV = max(zV, 0.01);
+  float fresnel = 0.02 + 0.98 * pow(max(1.0 - dot(V, H), 0.0), 5.0);
+  zL = clamp(zL, 0.01, 0.9999);
+  zV = clamp(zV, 0.01, 0.9999);
   return fresnel * p / ((1.0 + Lambda(zL, sigmaL2) + Lambda(zV, sigmaV2)) * zV * zH * zH * zH * zH * 4.0);
 }
 
@@ -154,7 +154,7 @@ void main() {
   vec3 Tx = cross(Ty, N);
 
   vec3 L = uSunDir;
-  float nv = max(dot(N, V), 0.0);
+  float nv = clamp(dot(N, V), 0.0, 1.0);
   // view-direction slope variance for the averaged Fresnel
   vec2 vh = normalize(V.xz + 1e-6);
   float sigmaV = sqrt(dot(vh * vh, sigmaSq));
@@ -188,7 +188,7 @@ void main() {
 
   // crest subsurface scattering (light transmitted through thin backlit crests)
   float H = max(vDisp + 0.15 * uHs, 0.0) / max(uHs, 0.3);
-  float back = pow(max(dot(L, -V), 0.0), 4.0) * pow(0.5 - 0.5 * dot(L, N), 3.0);
+  float back = pow(max(dot(L, -V), 0.0), 4.0) * pow(max(0.5 - 0.5 * dot(L, N), 0.0), 3.0);
   float side = pow(nv, 2.0) * 0.18;
   vec3 sss = uSSS * (1.0 - F) * (H * back * 3.0 * uSunE * sunVis + side * (uSkyE + uSunE * sunVis * max(L.y, 0.0) * 0.3));
 
@@ -227,13 +227,14 @@ void main() {
 }`;
 
 export class Water {
-  constructor(gl, { angular = 512, rings = 780, center = 0.03, far = 40000 } = {}) {
+  constructor(gl, { angular = 512, center = 0.03, far = 40000 } = {}) {
     this.gl = gl;
     this.prog = new Program(gl, VS, FS, { label: 'water' });
     const ang = (2 * Math.PI) / angular;
     const q = 1 + ang;
     const a = center / ang;
     const radii = [0];
+    const rings = Math.ceil(Math.log(far / a + 1) / Math.log(q));
     for (let i = 1; i <= rings; i++) {
       const r = a * (Math.pow(q, i) - 1);
       radii.push(r);

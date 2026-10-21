@@ -9,6 +9,7 @@ const VS = `
 layout(location = 0) in vec4 aSeed;
 uniform mat4 uViewProj;
 uniform vec3 uCamPos;
+uniform vec2 uAnchor;        // spawn-field centre (camera base, does not sway)
 uniform float uTime;
 uniform float uRadius;
 uniform float uStrength;     // 0..1 with wind (gale and above)
@@ -26,7 +27,7 @@ void main() {
   float age = fract(tt);                 // 0..1 over the particle life
   float r = sqrt(h1(cyc * 1.31 + aSeed.y * 77.0)) * uRadius;
   float a = h1(cyc * 2.71 + aSeed.x * 53.0) * 6.2831853;
-  vec2 xz = uCamPos.xz + vec2(cos(a), sin(a)) * r;
+  vec2 xz = uAnchor + vec2(cos(a), sin(a)) * r;
   // where is the sea breaking right now? dense foam on a crest
   vec4 d0 = textureLod(uDisp[0], xz / uSize[0], 1.0);
   vec4 d1 = textureLod(uDisp[1], xz / uSize[1], 1.0);
@@ -100,7 +101,7 @@ export class Spray {
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
     this.prog.use({
-      ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uTime: u.time, uRadius: 90,
+      ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uAnchor: u.anchor || [0, 0], uTime: u.time, uRadius: 90,
       uStrength: strength, uWind: u.windVec, uDisp: u.disp, uSize: u.sizes, uFlash: u.flash,
     });
     gl.bindVertexArray(this.vao);
