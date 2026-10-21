@@ -66,7 +66,8 @@ void main() {
   vec3 col = skyRadiance(d);
   // a soft sun (pre-blurred); the sharp glint is handled analytically by the BRDF
   if (uCloudsOn > 0.5) {
-    vec4 cl = texture(uCloudsEnv, vUv);
+    // below the horizon the probe repeats the horizon row (not unclouded clear sky)
+    vec4 cl = texture(uCloudsEnv, vec2(vUv.x, min(vUv.y, 0.5 - 0.6 / float(textureSize(uCloudsEnv, 0).y))));
     col = col * cl.a + cl.rgb;
   }
   col = applyFog(col, d, 1e9);

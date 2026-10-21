@@ -423,9 +423,19 @@ uniform vec2 uFogCam;     // camera xz
 float rampInt(float u, float w) { return u < -w ? 0.0 : (u > w ? u : (u + w) * (u + w) / (4.0 * w)); }
 float fogHash(float x) { return fract(sin(x * 91.17) * 43758.5453); }
 float fogNoise(float x) { float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(fogHash(i), fogHash(i + 1.0), f); }
+uniform vec2 uSprayHaze;  // x: extinction at the sea surface (1/m), y: camera height (m)
 vec3 applyFog(vec3 col, vec3 dir, float dist) {
   float L = fogPathLength(dir, dist);
   float tau = uFogDensity * L;
+  // wind-borne spray hugging the sea (scale height H ~ 20 m): integral of exp(-h/H) along the ray
+  if (uSprayHaze.x > 0.0) {
+    const float Hs = 20.0;
+    float Ls = min(dist, 30000.0);
+    float d = dir.y;
+    float h0 = uSprayHaze.y;
+    float I = abs(d) < 1e-4 ? exp(-h0 / Hs) * Ls : Hs / d * (exp(-h0 / Hs) - exp(-max(h0 + d * Ls, 0.0) / Hs));
+    tau += uSprayHaze.x * max(I, 0.0);
+  }
   float stormFrac = 0.0;
   if (uFogFront.w > 0.0) {
     vec2 n = uFogFront.xy;

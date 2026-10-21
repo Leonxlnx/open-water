@@ -1,9 +1,15 @@
 # Open Water
 
 A real-time, physically based ocean in pure WebGL2, with weather you can steer: calm golden
-hours, rising wind, rain, squall lines, gales and lightning. There are no textures, models or
+hours, rising wind, rain, squall lines, gales, lightning and moonlit nights. There are no textures, models or
 image assets. Every wave, cloud, foam bubble and raindrop is computed. The only recorded
 material is sound (rain and thunder).
+
+| | |
+| --- | --- |
+| ![Golden hour](media/golden-hour.jpg) | ![Squall line](media/squall.jpg) |
+| ![Under the shelf cloud](media/shelf.jpg) | ![Lightning](media/lightning.jpg) |
+| ![Gale and rain](media/storm.jpg) | ![Moonlit night](media/night.jpg) |
 
 **Live:** https://leonxlnx.github.io/open-water/ · **Film:** [`media/open-water.mp4`](media/open-water.mp4), one minute, rendered offline by the same engine.
 
@@ -32,7 +38,9 @@ gale force it is drawn into streaks along the wind.
 **Sky.** The atmosphere follows Hillaire (2020): transmittance, multiple-scattering, sky-view
 and aerial-perspective LUTs. Clouds are volumetric, built from procedural Perlin–Worley noise
 with Beer–powder lighting, Wrenninge multiple-scattering octaves and two-stream diffusion
-through thick storm decks. A squall front moves the weather across the sea.
+through thick storm decks, plus scud below storm decks. Crepuscular rays are traced through the haze
+with the cloud-shadow map. A squall front moves the weather across the sea.
+Spindrift is torn off breaking crests at gale force.
 
 **Rain and storm.** Drop sizes follow Marshall–Palmer, with terminal velocities from Atlas et
 al. (1973). Streak photometry follows Garg & Nayar: a drop covers its streak only D/(v·T) of
@@ -120,7 +128,7 @@ ffmpeg/x264 and the soundtrack is muxed in. The timeline is in `src/film.js`.
 ```
 src/ocean/   FFT cascades, spectrum, foam, surface shading, surface probe
 src/sky/     atmosphere LUTs, volumetric clouds, sky and reflection probe
-src/fx/      rain, ripples, lightning, post-processing
+src/fx/      rain, ripples, spindrift, lightning, post-processing
 src/audio/   sound engine (live and offline)
 src/film.js  the film timeline
 tools/       dev server, screenshots, calibration (wave heights, foam coverage), profiling

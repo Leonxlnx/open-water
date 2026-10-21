@@ -60,7 +60,13 @@ void main() {
   float streak = fbm(s, vec2(2.0, 16.0), 5) * 0.5 + 0.5;
   float sr = ridged(vec2(uv.x * 3.0, uv.y * 24.0) + w * 0.5, vec2(3.0, 24.0), 4);
   float S = clamp(0.55 * streak + 0.6 * sr, 0.0, 1.0);
-  o = vec4(T, bub, S, 1.0);
+  // A: connected lace network for the residual foam of gale-force seas: the borders of bubble
+  // rafts form a cellular lattice, i.e. the edges (F2 - F1 = 0) of a domain-warped Voronoi diagram
+  vec2 q2 = uv + w * 0.05;
+  vec2 c1 = voronoi(q2 * 7.0, 7.0);
+  vec2 c2 = voronoi(q2 * 17.0 + 3.1, 17.0);
+  float net = min((c1.y - c1.x) * 1.7, (c2.y - c2.x) * 2.4 + 0.14);
+  o = vec4(T, bub, S, clamp(net, 0.0, 1.0));
 }`;
 
 export class FoamTexture {
@@ -72,16 +78,19 @@ export class FoamTexture {
   }
 }
 
-// Returns vec2(coverage, thickness). f = accumulated foam density.
+// Returns vec2(coverage, thickness). f = accumulated whitecap foam density, lace = residual
+// stage-B foam network (gale force) drawn as thin lines along the wind.
 export const FOAM_GLSL = `
 uniform sampler2D uFoamTex;
 uniform vec2 uWindDir;
 uniform float uFoamStretch;   // 0: isotropic patches, 1: fully streaky (gale)
 vec2 foamBump = vec2(0.0);
-vec2 foamCoverage(vec2 xz, float f, float t, float dist) {
-  if (f < 0.003) return vec2(0.0);
+vec2 foamCoverage(vec2 xz, float f, float lace, float dist) {
   vec2 w = uWindDir;
   vec2 p = vec2(dot(xz, w), dot(xz, vec2(-w.y, w.x)));
+  // derivatives first: they must be evaluated in uniform control flow
+  vec2 dpx = dFdx(p), dpy = dFdy(p);
+  if (f < 0.003 && lace < 0.003) return vec2(0.0);
   vec4 a = texture(uFoamTex, p / 5.5);
   vec4 b = texture(uFoamTex, p / 1.9 + vec2(0.37, 0.71));
   vec4 s = texture(uFoamTex, vec2(p.x / 45.0, p.y / 15.0) + vec2(0.13, 0.5));
@@ -98,9 +107,22 @@ vec2 foamCoverage(vec2 xz, float f, float t, float dist) {
   // gated by density: a trace of foam must not light up the threshold field's thin veins
   float cov = clamp(margin / edge, 0.0, 1.0) * smoothstep(0.015, 0.1, F);
   // far away: sub-pixel structure averages out to the expected (energy-conserving) coverage
-  vec2 g = max(abs(dFdx(p)), abs(dFdy(p))) / 5.5 * 1024.0;
+  vec2 g = max(abs(dpx), abs(dpy)) / 5.5 * 1024.0;
   float far = smoothstep(2.5, 6.5, log2(max(max(g.x, g.y), 1e-3)));
   cov = mix(cov, clamp(F * 1.25, 0.0, 1.0), far);
+  // residual lace: thin vein lines, stretched along the wind, thicker as the gale strengthens
+  float lc = 0.0;
+  if (lace > 0.003) {
+    vec2 pl = vec2(p.x / (1.0 + 2.2 * uFoamStretch), p.y);
+    float va = texture(uFoamTex, pl / 4.2 + vec2(0.21, 0.83)).a;
+    float vb = texture(uFoamTex, pl / 1.5 + vec2(0.57, 0.11)).a;
+    float vein = va * 0.6 + vb * 0.4;
+    // lace persists where whitecaps broke recently (old foam f) and in wind-row patches (big.b)
+    float rafts = smoothstep(0.22, 0.6, big.b * 0.7 + clamp(f * 3.0, 0.0, 1.0) * 0.6);
+    float wid = (0.04 + lace * 0.16) * (0.5 + rafts) + fwidth(vein) * 0.6;
+    lc = (1.0 - smoothstep(wid * 0.4, wid, vein)) * smoothstep(0.0, 0.08, lace) * rafts;
+    lc = mix(lc, lace * 0.3 * rafts, far);
+  }
   float bub = mix(a.g * 0.45 + b.g * 0.35 + big.r * 0.2, 0.8, far);
   // optical thickness: dense where the foam far exceeds its threshold, thin near its edges
   float thick = mix(smoothstep(0.0, 0.45, margin), clamp(F * 1.4, 0.0, 1.0), far) * bub;
@@ -108,12 +130,13 @@ vec2 foamCoverage(vec2 xz, float f, float t, float dist) {
   cov *= mix(0.78 + 0.22 * smoothstep(0.2, 0.8, b.g * 0.6 + a.g * 0.4), 1.0, far);
   // relief of the bubble mass: world-space slope of the structure field (treated as ~15 cm of height),
   // recovered from screen derivatives, for side-lit shading of the foam
-  vec2 dpx = dFdx(p), dpy = dFdy(p);
   mat2 Mj = mat2(dpx.x, dpy.x, dpx.y, dpy.y);
   float det = determinant(Mj);
   vec2 grad = abs(det) > 1e-12 ? inverse(Mj) * vec2(dFdx(T), dFdy(T)) : vec2(0.0);
   grad = clamp(grad * 0.15, vec2(-1.5), vec2(1.5)) * (1.0 - far);
   foamBump = grad.x * w + grad.y * vec2(-w.y, w.x);
-  return vec2(cov, thick);
+  // lace is a thin translucent bubble film
+  thick = max(thick, lc * 0.7);
+  return vec2(max(cov, lc), thick);
 }
 `;

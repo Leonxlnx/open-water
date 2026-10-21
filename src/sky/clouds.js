@@ -246,16 +246,27 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // light march towards the sun (geometric step growth)
       float tau = 0.0;
       // far away the light path must still span the cloud (few long steps), or shading follows noise
-      float ls = nearField ? 45.0 : 220.0;
-      float lgrow = nearField ? 1.85 : 3.2;
+      // the march spans the same ~2.6 km whatever the step count (env, far field, quality tier),
+      // so coarse passes don't see thick decks as thin and sunlit inside
+      int nL = nearField ? lightSteps : 3;
+      float lgrow = 2.0;
+      float ls = 2600.0 / (exp2(float(nL)) - 1.0);
       vec3 lp = p;
+      float marched = 0.0;
+      bool exited = false;
       for (int j = 0; j < 8; j++) {
-        if (j >= (nearField ? lightSteps : 3)) break;
+        if (j >= nL) break;
         lp += uSunDir * ls;
         float lh = heightOf(lp);
-        if (lh > sT || lh < sB - 50.0) break;
+        if (lh > sT || lh < sB - 50.0) { exited = true; break; }
         tau += cloudDensity(lp, lh, j < lightDetail) * ls;
+        marched += ls;
         ls *= lgrow;
+      }
+      // still inside a deck after 2.6 km: extrapolate the rest of the column with the mean density
+      if (!exited && marched > 0.0) {
+        float rest = clamp((top - heightOf(lp)) / max(uSunDir.y, 0.05), 0.0, 12000.0);
+        tau += tau / marched * rest * 0.6;
       }
       // scud sits under the deck: sunlight must cross the whole layer above it
       if (h < base) tau += R.z * (top - base) * 0.25 / max(uSunDir.y, 0.1);
@@ -280,7 +291,10 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // two-stream diffusion transmittance for thick media (asymmetry g ~ 0.85): 1/(1 + 0.75(1-g) tau)
       float diffSun = 1.0 / (1.0 + 0.11 * tau);
       float diffUp = 1.0 / (1.0 + 0.11 * tauUp);
-      vec3 sun = sunE * (ms * mix(1.0, powder, 0.55 * (1.0 - max(cosT, 0.0))) + diffSun * 0.06 * max(uSunDir.y + 0.1, 0.0));
+      // multiply scattered sunlight fills thick clouds with near-isotropic light, L ~ E T_diff / pi;
+      // it dominates their shaded interiors (grey-white), not the blue skylight
+      float diffuse = diffSun * 0.3 * (1.0 - exp(-0.15 * tau));
+      vec3 sun = sunE * (ms * mix(1.0, powder, 0.55 * (1.0 - max(cosT, 0.0))) + diffuse);
       vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 2.0;
       if (h < base) amb *= 0.5; // scud: self-shadowed fragments read darker than the deck
       vec3 S = (sun + amb) * sigma;

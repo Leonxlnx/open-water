@@ -41,7 +41,7 @@ export class Weather {
     this.target = { ...PRESETS[preset] };
     this.state = { ...PRESETS[preset] };
     this.preset = preset;
-    this.time = { sunElev: 18, sunAz: 200 };
+    this.time = { sunElev: 11, sunAz: 200 };
     this.timeTarget = { ...this.time };
     this.transition = 10; // seconds to settle (time constant ~ transition / 4)
   }

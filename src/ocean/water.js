@@ -58,6 +58,7 @@ uniform float uHs;
 uniform vec3 uRrs;               // water-leaving remote sensing reflectance (1/sr)
 uniform vec3 uSSS;               // crest scatter colour * strength
 uniform float uFoamAmount;
+uniform float uFoamLace;         // residual foam lace everywhere at gale force (stage-B whitecaps)
 uniform float uTime;
 uniform float uRain;
 uniform vec3 uFlash;             // lightning illuminance
@@ -194,7 +195,7 @@ void main() {
   vec3 col = refl * uDbgMask.x + sun * uDbgMask.y + (body + sss) * uDbgMask.z;
 
   // foam
-  vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount, uTime, dist);
+  vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount, uFoamLace * uFoamAmount, dist);
   float foam = fc.x;
   if (uDebug == 1) { oColor = vec4(foam, foamRaw, 0.0, 1.0); return; }
   if (foam > 0.0) {

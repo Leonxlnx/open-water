@@ -1,4 +1,4 @@
-import { createGL, Texture, Target, MSTarget, bindEmpty } from './gl.js';
+import { createGL, Texture, Target, MSTarget } from './gl.js';
 import { perspective, viewFromBasis, mul, invert, v3, clamp, smoothstep } from './math.js';
 import { Ocean } from './ocean/ocean.js';
 import { Water } from './ocean/water.js';
@@ -22,8 +22,8 @@ const mixv = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
 const RENDER_MODE = params.has('render');
 // quality tiers: 'rt' keeps the live app interactive on integrated GPUs, 'high' is for the film
 const QUALITY = {
-  rt: { cloudDiv: 3, steps: 44, lightSteps: 4, lightDetail: 1, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], aniso: 8, angular: 400 },
-  high: { cloudDiv: 2, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.3, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], aniso: 16, angular: 640 },
+  rt: { cloudDiv: 3, steps: 44, lightSteps: 4, lightDetail: 1, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], angular: 400 },
+  high: { cloudDiv: 2, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.3, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], angular: 640 },
 }[params.get('q') || (RENDER_MODE ? 'high' : 'rt')];
 
 export class App {
@@ -51,18 +51,14 @@ export class App {
     this.prof = new Profiler(gl, params.has('profile'));
     if (params.has('profile2')) this.ocean.prof = this.prof;
 
-    // placeholders until the cloud system provides real data
-    this.white = new Texture(gl, { w: 1, h: 1, format: 'rgba8', data: new Uint8Array([255, 255, 255, 255]) });
-    this.clear = new Texture(gl, { w: 1, h: 1, format: 'rgba16f', data: new Float32Array([0, 0, 0, 1]) });
-
     this.cam = {
-      eye: Number(params.get('h') || 4),   // metres above the (local) sea surface
+      eye: Number(params.get('h') || 3),   // metres above the (local) sea surface
       base: [0, 0],                         // anchor position (xz)
       heave: 0, roll: 0, tilt: 0,
       float: params.get('float') !== '0',
       pos: [0, Number(params.get('h') || 4), 0],
       yaw: Number(params.get('yaw') || 200) * Math.PI / 180,
-      pitch: Number(params.get('pitch') || -4) * Math.PI / 180,
+      pitch: Number(params.get('pitch') ?? 1.5) * Math.PI / 180,
       fov: Number(params.get('fov') || 42) * Math.PI / 180,
     };
     this.time = Number(params.get('t') || 0);
@@ -148,6 +144,8 @@ export class App {
     const lightScale = 1;
     const lightMag = night ? -12.7 : -26.74;
     const nightGain = night ? 40 : 1; // lightning against moonlight (physically ~4e5x, capped)
+    // the light source switched (sun <-> moon): temporal cloud history is meaningless now
+    if (this.night !== undefined && this.night !== night) this.clouds.reset = true;
     this.night = night;
 
     const P = this.prof;
@@ -205,6 +203,8 @@ export class App {
       uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0], uFogStorm: [stormFog, 0.55],
       uFogCam: [this.cam.pos[0], this.cam.pos[2]],
       uFlashFog: flashRGB.map((x) => x * 0.25),
+      // spray haze from breaking crests: grows from a near gale (~14 m/s) upwards
+      uSprayHaze: [smoothstep(13, 26, S.wind) * 4.5e-4, Math.max(this.cam.pos[1], 0.5)],
     };
 
     // clouds advect with the wind aloft (~1.6x surface wind), detail evolves slowly
@@ -253,7 +253,7 @@ export class App {
       uEnv: this.sky.env, uCloudShadow: this.clouds.shadow, uShadowRect: this.clouds.shadowRect,
       uUnresolved: stats.unresolved, uHs: stats.hs,
       uRrs: mixv([0.00022, 0.0019, 0.0088], [0.0011, 0.0032, 0.0046], smoothstep(9, 24, S.wind)), uSSS: [0.004, 0.05, 0.042],
-      uFoamAmount: params.has('nofoam') ? 0 : 1, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
+      uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(15, 25, S.wind) * 0.38, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
       uFoamTex: this.foam.tex, uWindDir: [Math.cos(wd), Math.sin(wd)], uFoamStretch: Math.min(Math.max((S.wind - 10) / 8, 0), 1), uDebug: 0,
     };
     this.water.draw(this.waterUniforms);
@@ -275,7 +275,7 @@ export class App {
 
     P.section('post');
     this.post.run(this.hdr, dt, {
-      time: t, bloom: 0.05, exposureBias: Number(params.get('ev') || 0) - 0.4 * L.dark,
+      time: t, bloom: 0.05, exposureBias: Number(params.get('ev') || 0) - 0.75 * L.dark,
       skyU, cloudShadow: this.clouds.shadow, incident: 0.75, fade: this.fade ?? 1, whiteBalance: 0.55 + 0.3 * L.dark, night: night ? 1 : 0,
     });
     P.end();
