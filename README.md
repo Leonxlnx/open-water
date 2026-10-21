@@ -7,11 +7,15 @@ material is sound (rain and thunder).
 
 | | |
 | --- | --- |
-| ![Golden hour](media/golden-hour.jpg) | ![Squall line](media/squall.jpg) |
+| ![Golden hour](media/golden-hour.jpg) | ![A squall line of cumulonimbus approaches](media/squall.jpg) |
 | ![Under the shelf cloud](media/shelf.jpg) | ![Lightning](media/lightning.jpg) |
-| ![Gale and rain](media/storm.jpg) | ![Moonlit night](media/night.jpg) |
+| ![Gale and rain](media/storm.jpg) | ![Moonlit night, the storm flickering on the horizon](media/night.jpg) |
 
-**Live:** https://leonxlnx.github.io/open-water/ · **Film:** [`media/open-water.mp4`](media/open-water.mp4), one minute, rendered offline by the same engine.
+**Live:** https://leonxlnx.github.io/open-water/ · **Film:** [`media/open-water.mp4`](media/open-water.mp4) (one minute, 1080p60, rendered offline by the same engine; the full-quality master is on the [releases page](https://github.com/Leonxlnx/open-water/releases)).
+
+The film runs in three acts: a golden-hour calm; a squall line of cumulonimbus crossing the sea,
+with its shelf cloud, rain curtains, gale and lightning; and a moonlit night after the storm, with
+the cell still flickering on the horizon.
 
 ## What is simulated
 
@@ -88,6 +92,15 @@ photography. The measurable parts are checked with tools:
 | Visibility in the heaviest rain (Koschmieder, 3.9 / β) | ~2–3 km | 3.0 km |
 | Tonal range vs. reference photos (`tools/tonestats.mjs`) | p10 ≈ 5–45, highlights ≈ 230–255 | shadows deepened, highlights reach white |
 | Lightning illuminance at 1 km (daytime) | ~100 lux on ~2000 lux storm light | +5% |
+
+Side by side with NOAA's Beaufort-scale photographs. The render is on the left, seen from a ship's
+deck 14 m up. The photos are from the NOAA Photo Library (public domain) and carry their film
+stock's colour cast. At force 9 the real sea is darker, with denser foam lace than the render
+produces so far.
+
+| Force 5 (8.5 m/s) | Force 7 (15 m/s) | Force 9 (21 m/s) |
+| --- | --- | --- |
+| ![Beaufort 5: render vs photo](media/compare-beaufort-5.jpg) | ![Beaufort 7: render vs photo](media/compare-beaufort-7.jpg) | ![Beaufort 9: render vs photo](media/compare-beaufort-9.jpg) |
 
 A multi-agent review compared 13 scenes with real photographs and had independent judges confirm
 each discrepancy. A second adversarial code review then confirmed 30 bugs, every one fixed.

@@ -3,3 +3,4 @@ out/
 frames/
 *.log
 .DS_Store
+ffmpeg2pass*
