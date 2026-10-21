@@ -130,17 +130,20 @@ void main() {
     // quintic-smoothed lookups: thresholding a bilinear coarse field gives polygonal outlines
     // (explicit gradients: the remapped coordinates must not drive mip selection)
     vec2 u0 = vXZ / uSize[0], u1 = vXZ / uSize[1];
-    vec4 d0 = textureGrad(uDisp[0], smoothUv(u0, uSize[0] / uTexel[0]), dFdx(u0), dFdy(u0));
-    vec4 d1 = textureGrad(uDisp[1], smoothUv(u1, uSize[1] / uTexel[1]), dFdx(u1), dFdy(u1));
+    vec4 d0 = textureGrad(uDisp[0], smoothUv(u0, uSize[0] / uTexel[0]), dFdx(u0) * 0.5, dFdy(u0) * 0.5);
+    vec4 d1 = textureGrad(uDisp[1], smoothUv(u1, uSize[1] / uTexel[1]), dFdx(u1) * 0.5, dFdy(u1) * 0.5);
     vec4 d2 = texture(uDisp[2], vXZ / uSize[2]);
     foamRaw = d0.w * 0.32 + d1.w * 1.0 + d2.w * 0.75;
+    // waves break on the crests of the energetic (dominant) waves: whitecaps cluster there
+    float crest = smoothstep(-0.2 * uHs, 0.3 * uHs, vDisp);
+    foamRaw *= mix(0.3, 1.55, crest);
   }
 
   // rain ripples: normal perturbation near the camera, extra roughness further away
   vec3 rr = rainRipples(vXZ, uTime, uRain, dist);
   s += rr.xy;
   // unresolved capillary roughness: sparkles near the camera, smooth BRDF lobe far away
-  float unres = uUnresolved * 0.5 * mix(0.12, 1.0, smoothstep(4.0, 500.0, dist));
+  float unres = uUnresolved * 0.5 * mix(0.35, 1.0, smoothstep(4.0, 400.0, dist));
   vec2 sigmaSq = var + vec2(unres) + vec2(rr.z);
   sigmaSq = max(sigmaSq, vec2(2e-5));
 
@@ -167,12 +170,15 @@ void main() {
   // reflection of the sky / clouds, blurred by the unresolved roughness
   vec3 R = reflect(-V, N);
   // a ray reflected downwards hits another wave: it sees a second, dimmer reflection of the
-  // sky near the horizon rather than the sky above (mirroring it up gives bright crest lines)
-  float below = smoothstep(0.0, 0.08, -R.y);
+  // sky near the horizon rather than the sky above (mirroring it up gives bright crest lines).
+  // The reflected lobe has an angular width ~2 sigma: blend by the fraction below the horizon,
+  // which avoids binary per-pixel dashes where R.y changes sign.
+  float lobe = 2.0 * sqrt(sigmaSq.x + sigmaSq.y) + 0.02;
+  float below = smoothstep(-lobe, lobe, -R.y);
   R.y = abs(R.y) * mix(1.0, 0.15, below);
   // extended sources (sky, clouds) are blurred by the full capillary roughness; only the
   // sun's tiny disk is allowed to resolve into individual sparkles near the camera
-  float rough = sqrt(sigmaSq.x + sigmaSq.y + uUnresolved * 0.88 * (1.0 - smoothstep(4.0, 500.0, dist)));
+  float rough = sqrt(sigmaSq.x + sigmaSq.y + uUnresolved * 0.65 * (1.0 - smoothstep(4.0, 400.0, dist)));
   // mip from the BRDF width and from the spread of reflected directions within the pixel
   float dR = length(fwidth(R));
   float envLod = clamp(max(log2(rough * 96.0), log2(dR * 256.0 / 3.14159) + 0.5), 0.0, 7.0);
@@ -193,6 +199,7 @@ void main() {
   vec3 sss = uSSS * (1.0 - F) * (H * back * 3.0 * uSunE * sunVis + side * (uSkyE + uSunE * sunVis * max(L.y, 0.0) * 0.3));
 
   vec3 col = refl * uDbgMask.x + sun * uDbgMask.y + (body + sss) * uDbgMask.z;
+  col += (1.0 - F) * uRain * 0.035 * smoothstep(3.0, 40.0, dist) * (uSkyE + uSunE * sunVis * max(L.y, 0.0)) / M_PI;
 
   // foam
   vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount, uFoamLace * uFoamAmount, dist);

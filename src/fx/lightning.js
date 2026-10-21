@@ -10,8 +10,10 @@ uniform mat4 uViewProj;
 uniform vec3 uCamPos;
 uniform float uPixelAngle;
 uniform float uFogDensity;
-out vec2 vUv;
+uniform float uBase;      // cloud base: the channel above it is hidden inside the cloud
+centroid out vec2 vUv;
 out float vI;
+centroid out float vClip;
 void main() {
   vec2 c = vec2(float(gl_VertexID & 1), float(gl_VertexID >> 1));
   vec3 p = mix(aA.xyz, aB.xyz, c.y);
@@ -24,19 +26,21 @@ void main() {
   float w = max(wPhys, wPix);
   vUv = c;
   vI = aA.w * (wPhys / w) * exp(-uFogDensity * dist * 0.6);
+  vClip = smoothstep(uBase + 60.0, uBase - 120.0, p.y);
   gl_Position = uViewProj * vec4(p + side * (c.x - 0.5) * w, 1.0);
 }`;
 
 const BOLT_FS = `
-in vec2 vUv;
+centroid in vec2 vUv;
 in float vI;
+centroid in float vClip;
 out vec4 oColor;
 uniform float uIntensity;
 uniform vec3 uColor;
 void main() {
-  float x = abs(vUv.x * 2.0 - 1.0);
+  float x = clamp(abs(vUv.x * 2.0 - 1.0), 0.0, 1.0);
   float core = exp(-x * x * 9.0);
-  oColor = vec4(uColor * core * vI * uIntensity, 0.0);
+  oColor = vec4(uColor * core * vI * vClip * uIntensity, 0.0);
 }`;
 
 export class Lightning {
@@ -161,7 +165,7 @@ export class Lightning {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE);
     gl.depthMask(false);
-    this.prog.use({ uViewProj: u.viewProj, uCamPos: u.camPos, uPixelAngle: u.pixelAngle, uFogDensity: u.fogDensity || 0, uIntensity: this.bolt * 2600, uColor: [0.82, 0.86, 1.0] });
+    this.prog.use({ uViewProj: u.viewProj, uCamPos: u.camPos, uPixelAngle: u.pixelAngle, uFogDensity: u.fogDensity || 0, uBase: u.base ?? 1e5, uIntensity: this.bolt * 2600 * (u.transmit ?? 1), uColor: [0.82, 0.86, 1.0] });
     gl.bindVertexArray(this.vao);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.segments);
     gl.bindVertexArray(null);

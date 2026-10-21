@@ -110,7 +110,9 @@ uniform vec3 uFlashColor;
 const float RG_M = 6360000.0;
 
 float remapc(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
-float frontMask(vec2 xz) { return uFront.w > 0.0 ? smoothstep(-uFront.w, uFront.w, dot(xz, uFront.xy) - uFront.z) : 0.0; }
+// the squall line meanders (frontCurve is shared with the fog in SKY_LOOKUP_GLSL and the CPU)
+float frontDist(vec2 xz) { return dot(xz, uFront.xy) - uFront.z - frontCurve(dot(xz, vec2(-uFront.y, uFront.x))); }
+float frontMask(vec2 xz) { return uFront.w > 0.0 ? smoothstep(-uFront.w, uFront.w, frontDist(xz)) : 0.0; }
 const float SCUD_BASE = 260.0;
 float shellBase() {
   float b = uFront.w > 0.0 ? min(uBase, uStormA.w) : uBase;
@@ -128,7 +130,30 @@ vec4 regime(vec2 xz, out float base, out float top) {
   return vec4(mix(uCoverage, uStormA.x, m), mix(uDark, uStormA.y, m), mix(uDensity, uStormA.z, m), m);
 }
 
+// Shelf cloud (arcus): a low wedge along the gust front ahead of the rain. Its nose hangs lowest
+// at the leading edge, the face steps up in laminar tiers and merges into the storm's base.
+float shelfDensity(vec3 p, float h) {
+  if (uFront.w <= 0.0 || uStormA.y < 0.5) return 0.0;
+  float d = frontDist(p.xz);
+  // the face leans back with height (~25 deg)
+  float dl = d + (h - 260.0) * 2.2;
+  if (dl < -3400.0 || d > 1600.0) return 0.0;
+  float u = clamp((dl + 3400.0) / 5000.0, 0.0, 1.0);
+  float sb = mix(260.0, uStormA.w, smoothstep(0.1, 0.95, u));
+  float st = uStormA.w + 450.0;
+  if (h < sb || h > st) return 0.0;
+  float tz = (h - sb) / max(st - sb, 1.0);
+  vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / vec3(2400.0, 700.0, 2400.0);
+  vec4 n = textureLod(uShape, sp, lodFor(2400.0 / 128.0));
+  float tiers = 0.62 + 0.38 * sin(h * 0.042 + n.g * 5.0);
+  float nose = smoothstep(0.0, 0.05 + 0.08 * n.r, u);
+  float body = smoothstep(0.0, 0.1, tz) * (1.0 - smoothstep(0.75, 1.0, tz));
+  return nose * body * tiers * smoothstep(0.3, 0.62, n.r * 0.75 + 0.4) * uStormA.z * 1.5;
+}
+
 float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top) {
+  float shelf = shelfDensity(p, h);
+  if (shelf > 0.0 && h < base) return shelf;
   // scud (fractus): ragged low fragments racing under a storm deck
   if (h < base) {
     if (R.y < 0.5 || h < SCUD_BASE) return 0.0;
@@ -139,7 +164,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     float d2 = smoothstep(0.8, 0.93, frag) * smoothstep(0.0, 0.35, sh) * (1.0 - smoothstep(0.55, 1.0, sh));
     return d2 * R.z * 0.6 * (R.y - 0.5) * 2.0;
   }
-  if (h > top) return 0.0;
+  if (h > top) return shelf;
   float hf = (h - base) / (top - base);
   float cov = R.x, dark = R.y;
   vec2 wuv = (p.xz + uWindOffset.xz) / 30000.0;
@@ -147,7 +172,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   float c = smoothstep(1.0 - cov - 0.18, 1.0 - cov + 0.2, wm.r * 0.85 + wm.b * 0.25 * cov);
   // an overcast deck is closed: no column-shaped gaps from the 2D coverage map
   c = max(c, smoothstep(0.82, 0.96, cov));
-  if (c <= 0.001) return 0.0;
+  if (c <= 0.001) return shelf;
   vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / 3000.0;
   vec4 n = textureLod(uShape, sp, uShapeLod < 0.0 ? lodFor(3000.0 / 128.0) : uShapeLod);
   float wf = n.g * 0.625 + n.b * 0.25 + n.a * 0.125;
@@ -162,7 +187,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   float shape = remapc(n.r, wf - 1.0, 1.0, 0.0, 1.0);
   float d = shape * hg;
   d = remapc(d, 1.0 - c, 1.0, 0.0, 1.0) * c;
-  if (d <= 0.0) return 0.0;
+  if (d <= 0.0) return shelf;
   if (detail) {
     vec3 dp = (p + uWindOffset * vec3(1.15, 1.0, 1.15)) / 420.0;
     vec3 dn = textureLod(uDetail, dp, lodFor(420.0 / 32.0)).rgb;
@@ -171,7 +196,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     float dm = mix(df, 1.0 - df, clamp(hf * 5.0, 0.0, 1.0));
     d = remapc(d, dm * 0.45, 1.0, 0.0, 1.0);
   }
-  return max(d, 0.0) * R.z;
+  return max(max(d, 0.0) * R.z, shelf);
 }
 float cloudDensity(vec3 p, float h, bool detail) {
   float base, top;
@@ -299,7 +324,10 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // multiply scattered sunlight fills thick clouds with near-isotropic light, L ~ E T_diff / pi;
       // it dominates their shaded interiors (grey-white), not the blue skylight
       float diffuse = diffSun * 0.3 * (1.0 - exp(-0.15 * tau));
-      vec3 sun = sunE * (ms * mix(1.0, powder, 0.55 * (1.0 - max(cosT, 0.0))) + diffuse);
+      // the diffused light carries the colour of the whole illumination at the cloud top: sun + skylight
+      // diffused deck light mixes sun and blue skylight: neutral-cool (~6500 K) at the sun's luminance
+      vec3 diffCol = dot(sunE, vec3(0.2126, 0.7152, 0.0722)) * vec3(0.93, 1.0, 1.09);
+      vec3 sun = sunE * ms * mix(1.0, powder, 0.55 * (1.0 - max(cosT, 0.0))) + diffCol * diffuse;
       vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 2.0;
       if (h < base) amb *= 0.5; // scud: self-shadowed fragments read darker than the deck
       vec3 S = (sun + amb) * sigma;
@@ -406,7 +434,7 @@ void main() {
   o = mix(h, c, uFrame < 1.5 ? 1.0 : 0.25);
 }`;
 
-const SHADOW_FS = 'uniform vec3 uSunDir;\n' + CLOUD_GLSL + `
+const SHADOW_FS = 'uniform vec3 uSunDir;\nfloat frontCurve(float along) { return 1400.0 * sin(along / 7000.0) + 650.0 * sin(along / 2900.0 + 1.3); }\n' + CLOUD_GLSL + `
 in vec2 vUv;
 out vec4 o;
 uniform vec4 uRect; // origin xz, size

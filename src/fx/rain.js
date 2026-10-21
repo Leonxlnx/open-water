@@ -20,7 +20,7 @@ uniform float uLambda;                // Marshall-Palmer slope (1/mm)
 uniform float uCount;                 // active fraction
 uniform vec2 uViewport;
 uniform float uPixelAngle;            // radians per pixel
-out vec2 vUv;
+centroid out vec2 vUv;
 out float vAlpha;
 out vec3 vDir;
 out float vDist;
@@ -63,7 +63,7 @@ void main() {
 }`;
 
 const STREAK_FS = SKY_LOOKUP_GLSL + `
-in vec2 vUv;
+centroid in vec2 vUv;
 in float vAlpha;
 in vec3 vDir;
 in float vDist;
@@ -73,13 +73,14 @@ uniform vec3 uFlash;
 uniform float uGain;
 vec2 equirectUv(vec3 d) { return vec2(atan(d.z, d.x) / 6.2831853 + 0.5, acos(clamp(d.y, -1.0, 1.0)) / 3.14159265); }
 void main() {
-  float across = 1.0 - abs(vUv.x * 2.0 - 1.0);
+  float across = clamp(1.0 - abs(vUv.x * 2.0 - 1.0), 0.0, 1.0);
   float along = smoothstep(0.0, 0.15, vUv.y) * smoothstep(1.0, 0.8, vUv.y);
   // a drop is a wide-angle lens: it shows a blurred, inverted image of the bright sky
   vec3 sky = textureLod(uEnv, equirectUv(vec3(0.0, 1.0, 0.0)), 6.0).rgb * 0.6
            + textureLod(uEnv, equirectUv(normalize(vec3(vDir.x, 0.35, vDir.z))), 5.0).rgb * 0.4;
   vec3 L = sky * 1.15 + uFlash * 0.25;
   float a = vAlpha * across * along * uGain;
+  a = clamp(a, 0.0, 1.0);
   oColor = vec4(L * a, a);
 }`;
 
@@ -94,7 +95,7 @@ uniform float uCount;
 uniform sampler2D uDisp[3];
 uniform float uSize[4];
 uniform float uPixelAngle;
-out vec2 vUv;
+centroid out vec2 vUv;
 out float vAlpha;
 float h1(float n) { return fract(sin(n) * 43758.5453); }
 void main() {
@@ -125,15 +126,15 @@ void main() {
 }`;
 
 const SPLASH_FS = SKY_LOOKUP_GLSL + `
-in vec2 vUv;
+centroid in vec2 vUv;
 in float vAlpha;
 out vec4 oColor;
 uniform vec3 uFlash;
 uniform float uGain;
 void main() {
-  float across = 1.0 - abs(vUv.x * 2.0 - 1.0);
+  float across = clamp(1.0 - abs(vUv.x * 2.0 - 1.0), 0.0, 1.0);
   vec3 L = (skyIrradiance() + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0)) * 0.35 + uFlash * 0.2;
-  float a = vAlpha * across * smoothstep(0.0, 0.3, vUv.y) * uGain;
+  float a = clamp(vAlpha * across * smoothstep(0.0, 0.3, clamp(vUv.y, 0.0, 1.0)) * uGain, 0.0, 1.0);
   oColor = vec4(L * a, a);
 }`;
 
@@ -187,7 +188,7 @@ export class Rain {
     this.pStreak.use({
       ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uBox: [36, 22, 36], uTime: u.time,
       uWind: u.wind, uDrift: u.drift || [0, 0], uExposure: u.exposure, uLambda: lambda, uCount: Math.min(Math.sqrt(u.rain) * 1.05, 1),
-      uViewport: u.viewport, uPixelAngle: u.pixelAngle, uEnv: u.env, uFlash: u.flash, uGain: u.gain ?? 9,
+      uViewport: u.viewport, uPixelAngle: u.pixelAngle, uEnv: u.env, uFlash: u.flash, uGain: u.gain ?? 13,
     });
     gl.bindVertexArray(this.vaoDrops);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.drops);

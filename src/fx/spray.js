@@ -16,7 +16,7 @@ uniform float uStrength;     // 0..1 with wind (gale and above)
 uniform vec2 uWind;          // m/s
 uniform sampler2D uDisp[3];
 uniform float uSize[4];
-out vec2 vUv;
+centroid out vec2 vUv;
 out float vAlpha;
 out float vDist;
 float h1(float n) { return fract(sin(n) * 43758.5453); }
@@ -56,7 +56,7 @@ void main() {
 }`;
 
 const FS = SKY_LOOKUP_GLSL + `
-in vec2 vUv;
+centroid in vec2 vUv;
 in float vAlpha;
 in float vDist;
 out vec4 oColor;

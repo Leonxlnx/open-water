@@ -127,10 +127,18 @@ vec3 agxEotf(vec3 v) {
                        -0.0990297440797205, -0.0989611768448433, 1.15107367264116);
   return mi * v;
 }
+uniform vec4 uLook;   // x: contrast (power about the pivot), y: pivot, z: saturation, w: black point
 vec3 agxLook(vec3 v) {
+  // photographic S-curve in display space: deepens shadows and carries highlights to white,
+  // matching the tonal spread of reference photographs (p10 ~5-45, max ~240-255 of 255)
+  v = max(v, vec3(0.0));
+  float k = uLook.x, pv = uLook.y;
+  vec3 lo = pv * pow(v / pv, vec3(k));
+  vec3 hi = 1.0 - (1.0 - pv) * pow(max(1.0 - v, vec3(0.0)) / (1.0 - pv), vec3(k));
+  v = mix(lo, hi, step(pv, v));
+  v = max(v - uLook.w, vec3(0.0)) / (1.0 - uLook.w);
   float luma = dot(v, vec3(0.2126, 0.7152, 0.0722));
-  v = pow(max(v, vec3(0.0)), vec3(1.12));
-  return luma + 1.04 * (v - luma);
+  return luma + uLook.z * (v - luma);
 }
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 
@@ -147,7 +155,7 @@ void main() {
   c *= exposure * uFade;
   float scot = uNight;
   float ly = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c = mix(c, ly * vec3(0.72, 0.88, 1.22), scot * 0.75);
+  c = mix(c, ly * vec3(0.78, 0.9, 1.15), scot * 0.35);
   vec2 d = vUv - 0.5;
   c *= 1.0 - uVignette * dot(d, d) * 1.6;
   c = agxEotf(agxLook(agx(c)));
@@ -155,7 +163,7 @@ void main() {
   // luminance grain (film-like, stronger in mid-tones) + triangular dither against banding
   float n = hash(vUv * 1931.7 + fract(uTime * 7.31)) + hash(vUv * 1173.3 + fract(uTime * 3.17)) - 1.0;
   float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-  c += n * uGrain * (0.35 + 4.0 * l * (1.0 - l));
+  c += n * uGrain * (1.0 + 1.6 * uNight) * (0.35 + 4.0 * l * (1.0 - l));
   c += (hash(gl_FragCoord.xy + fract(uTime) * 91.0) - 0.5) / 255.0;
   o = vec4(c, 1.0);
 }`;
@@ -225,6 +233,7 @@ export class Post {
       uMaxLum: opts.maxLum ?? 10,
       uTime: opts.time,
       uGrain: opts.grain ?? 0.012,
+      uLook: opts.look ?? [1.45, 0.42, 1.1, 0.0],
       uVignette: opts.vignette ?? 0.18,
       uFlashExposure: opts.flashExposure ?? 0,
       uManualExposure: opts.manualExposure ?? 0,

@@ -146,7 +146,6 @@ export class App {
     // Moonlight is rendered at unit scale (it would underflow fp16); night is made in exposure.
     const lightScale = 1;
     const lightMag = night ? -12.7 : -26.74;
-    const nightGain = night ? 40 : 1; // lightning against moonlight (physically ~4e5x, capped)
     // the light source switched (sun <-> moon): temporal cloud history is meaningless now
     if (this.night !== undefined && this.night !== night) this.clouds.reset = true;
     this.night = night;
@@ -173,7 +172,9 @@ export class App {
     const faz = (S.frontAz * Math.PI) / 180;
     const fn = [Math.cos(faz), Math.sin(faz)];
     const fz = this.cam.pos[0] * fn[0] + this.cam.pos[2] * fn[1] + S.frontDist;
-    const mCam = fOn ? smoothstep(-S.frontWidth, S.frontWidth, -S.frontDist) : 0;
+    const fAlong = -this.cam.pos[0] * fn[1] + this.cam.pos[2] * fn[0];
+    const fCurve = 1400 * Math.sin(fAlong / 7000) + 650 * Math.sin(fAlong / 2900 + 1.3);
+    const mCam = fOn ? smoothstep(-S.frontWidth, S.frontWidth, -S.frontDist - fCurve) : 0;
     const L = {
       rain: S.rain + (S.sRain - S.rain) * mCam,
       clouds: S.clouds + (S.sClouds - S.clouds) * mCam,
@@ -196,16 +197,22 @@ export class App {
     const flash = this.lightning.update(dt, S.lightning, this.cam, S.cloudBase);
     const lp = this.lightning.pos;
     const ldist = Math.hypot(lp[0] - this.cam.pos[0], lp[2] - this.cam.pos[2]);
-    const flashE = flash * 0.012 / (1 + (ldist / 2500) ** 2);
-    const flashRGB = [0.8 * flashE * nightGain, 0.85 * flashE * nightGain, 1.0 * flashE * nightGain];
+    // Illuminance of a stroke ~ I / d^2 with I ~ 1e8 cd (about 100 lux at 1 km), relative to the
+    // light source: sunlight ~1e5 lux, full moonlight ~0.25 lux. In daylight a strike barely lights
+    // the scene; at night it outshines the moon.
+    const srcLux = night ? 0.25 : 1e5;
+    const flashE = Math.min(flash * 1e8 / (ldist * ldist + 300 * 300) / srcLux, 6);
+    const flashRGB = [0.8 * flashE, 0.85 * flashE, 1.0 * flashE];
+    const lv = [lp[0] - this.cam.pos[0], (night ? lp[1] * 0.3 : lp[1] * 0.5) - this.cam.pos[1], lp[2] - this.cam.pos[2]];
+    const flashDir = v3.norm(lv);
     // rain extinction: visibility ~ 3.9/beta drops from >20 km to ~1.5 km in a downpour
     const fogDensity = S.mist * 1.2e-3 + S.rain * 1.3e-3;
     const stormFog = S.sMist * 1.2e-3 + S.sRain * 1.3e-3;
     const fogU = {
       uFogDensity: fogDensity, uFogTop: fOn ? S.sBase + 150 : S.cloudBase + 100,
-      uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0], uFogStorm: [stormFog, 0.55],
+      uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0], uFogStorm: [stormFog, 0.32],
       uFogCam: [this.cam.pos[0], this.cam.pos[2]],
-      uFlashFog: flashRGB.map((x) => x * 0.25),
+      uFlashFog: flashRGB.map((x) => x * 0.25), uFlashDir: flashDir,
       // spray haze from breaking crests: grows from a near gale (~14 m/s) upwards
       uSprayHaze: [smoothstep(13, 26, S.wind) * 4.5e-4, Math.max(this.cam.pos[1], 0.5)],
     };
@@ -221,7 +228,7 @@ export class App {
       top: S.cloudBase + 1800 + S.cloudDark * 5200, density: 0.11 - S.cloudDark * 0.05, dark: S.cloudDark,
       front: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0],
       stormA: [S.sClouds, S.sDark, 0.11 - S.sDark * 0.05, S.sBase], stormTop: S.sBase + 1800 + S.sDark * 5200,
-      flash: [lp[0], lp[1], lp[2], flash * 0.6 * nightGain], flashColor: [0.75, 0.8, 1.0], blend: flash > 0.02 ? 0.85 : QUALITY.blend, steps: QUALITY.steps,
+      flash: [lp[0], lp[1], lp[2], flash * (night ? 30 : 0.025)], flashColor: [0.75, 0.8, 1.0], blend: flash > 0.02 ? 0.85 : QUALITY.blend, steps: QUALITY.steps,
       lightSteps: QUALITY.lightSteps, lightDetail: QUALITY.lightDetail, check: QUALITY.check,
       shapeLod: params.has('shapelod') ? Number(params.get('shapelod')) : -1,
     };
@@ -267,7 +274,13 @@ export class App {
     this.rainDrift[1] += Math.sin(wd) * S.wind * 0.8 * dt;
     const pixelAngle = this.cam.fov / this.h;
     const fxU = { viewProj: M.vp, camPos: this.cam.pos, pixelAngle };
-    this.lightning.draw({ ...fxU, fogDensity });
+    // bolt seen through the rain: base fog plus the storm side's curtains along the path
+    {
+      const s0 = -S.frontDist - fCurve, sB = s0 + (lv[0] * fn[0] + lv[2] * fn[1]);
+      const inside = fOn ? (sB === s0 ? (s0 > 0 ? 1 : 0) : Math.min(Math.max((Math.max(sB, 0) - Math.max(s0, 0)) / (sB - s0), 0), 1)) : 0;
+      this.boltT = Math.exp(-(fogDensity * ldist + Math.max(stormFog - fogDensity, 0) * ldist * inside * 0.8));
+    }
+    this.lightning.draw({ ...fxU, fogDensity: 0, transmit: this.boltT, base: fOn ? Math.min(S.cloudBase, S.sBase) : S.cloudBase });
     const windVec = [Math.cos(wd) * S.wind, Math.sin(wd) * S.wind];
     this.spray.draw({ ...fxU, skyU, anchor: this.cam.base, time: t, wind: S.wind, windVec, disp: ot.disp.slice(0, 3), sizes: ot.sizes, flash: flashRGB });
     this.rain.draw({
@@ -279,10 +292,14 @@ export class App {
     gl.disable(gl.DEPTH_TEST);
     this.ms.resolve(this.hdrTarget);
 
+    // shooting into a low sun a photographer meters the bright sky (scene), not the incident light
+    const fh = Math.hypot(M.fwd[0], M.fwd[2]) || 1;
+    const backlit = night ? 0 : smoothstep(0.55, 0.95, (M.fwd[0] * sun[0] + M.fwd[2] * sun[2]) / fh / (Math.hypot(sun[0], sun[2]) || 1)) * (1 - smoothstep(12, 35, W.time.sunElev)) * (1 - L.clouds * 0.8);
     P.section('post');
     this.post.run(this.hdr, dt, {
-      time: t, bloom: 0.05, exposureBias: Number(params.get('ev') || 0) - 0.75 * L.dark,
-      skyU, cloudShadow: this.clouds.shadow, incident: 0.75, fade: this.fade ?? 1, whiteBalance: 0.55 + 0.3 * L.dark, night: night ? 1 : 0,
+      time: t, bloom: 0.05, exposureBias: Number(params.get('ev') || 0) - 1.7 * L.dark * L.dark,
+      skyU, cloudShadow: this.clouds.shadow, incident: 0.75 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : 0.1, night: night ? 1 : 0,
+      look: params.has('look') ? params.get('look').split(',').map(Number) : undefined,
     });
     P.end();
     this.stats = stats;
