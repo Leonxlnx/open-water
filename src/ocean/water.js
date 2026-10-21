@@ -49,6 +49,7 @@ uniform vec3 uCamPos;
 uniform sampler2D uDisp[3];
 uniform sampler2D uSlope[4];
 uniform float uSize[4];
+uniform float uTexel[4];
 uniform sampler2D uEnv;          // reflection environment (equirect, mips = roughness)
 uniform sampler2D uCloudShadow;  // sun visibility on the sea plane
 uniform vec4 uShadowRect;        // xz origin, 1/size
@@ -61,6 +62,7 @@ uniform float uTime;
 uniform float uRain;
 uniform vec3 uFlash;             // lightning illuminance
 uniform int uDebug;
+uniform vec3 uDbgMask; // debug: reflection, sun, body multipliers
 
 const float M_PI = 3.14159265359;
 
@@ -101,6 +103,14 @@ float reflectedSun(vec3 L, vec3 V, vec3 N, vec3 Tx, vec3 Ty, vec2 sigmaSq) {
   return fresnel * p / ((1.0 + Lambda(zL, sigmaL2) + Lambda(zV, sigmaV2)) * zV * zH * zH * zH * zH * 4.0);
 }
 
+// C2-smooth bilinear (Quilez): remap the fractional texel position with a quintic
+vec2 smoothUv(vec2 uv, float res) {
+  vec2 x = uv * res + 0.5;
+  vec2 i = floor(x), f = x - i;
+  f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+  return (i + f - 0.5) / res;
+}
+
 void main() {
   vec3 uSunE = sunIlluminance();
   vec3 uSkyE = skyIrradiance();
@@ -116,10 +126,13 @@ void main() {
   SLOPE(0) SLOPE(1) SLOPE(2) SLOPE(3)
   float foamRaw = 0.0;
   {
-    vec4 d0 = texture(uDisp[0], vXZ / uSize[0]);
-    vec4 d1 = texture(uDisp[1], vXZ / uSize[1]);
+    // quintic-smoothed lookups: thresholding a bilinear coarse field gives polygonal outlines
+    // (explicit gradients: the remapped coordinates must not drive mip selection)
+    vec2 u0 = vXZ / uSize[0], u1 = vXZ / uSize[1];
+    vec4 d0 = textureGrad(uDisp[0], smoothUv(u0, uSize[0] / uTexel[0]), dFdx(u0), dFdy(u0));
+    vec4 d1 = textureGrad(uDisp[1], smoothUv(u1, uSize[1] / uTexel[1]), dFdx(u1), dFdy(u1));
     vec4 d2 = texture(uDisp[2], vXZ / uSize[2]);
-    foamRaw = d0.w * 0.45 + d1.w * 1.0 + d2.w * 0.6;
+    foamRaw = d0.w * 0.32 + d1.w * 1.0 + d2.w * 0.75;
   }
 
   // rain ripples: normal perturbation near the camera, extra roughness further away
@@ -131,6 +144,11 @@ void main() {
   sigmaSq = max(sigmaSq, vec2(2e-5));
 
   vec3 N = normalize(vec3(-s.x, 1.0, -s.y));
+  // specular anti-aliasing (Kaplanyan & Hoffman 2016): normal variation inside the pixel
+  // footprint becomes extra slope variance, so sub-pixel ripples don't alias into hairlines
+  vec3 dNx = dFdx(N), dNy = dFdy(N);
+  float kv = min(0.5 * (dot(dNx, dNx) + dot(dNy, dNy)), 0.08);
+  sigmaSq += vec2(kv);
   vec3 Ty = normalize(cross(N, vec3(1.0, 0.0, 0.0)));
   vec3 Tx = cross(Ty, N);
 
@@ -147,10 +165,17 @@ void main() {
 
   // reflection of the sky / clouds, blurred by the unresolved roughness
   vec3 R = reflect(-V, N);
-  R.y = abs(R.y);
-  float rough = sqrt(sigmaSq.x + sigmaSq.y);
-  float envLod = clamp(log2(rough * 96.0), 0.0, 7.0);
-  vec3 sky = envSample(R, envLod);
+  // a ray reflected downwards hits another wave: it sees a second, dimmer reflection of the
+  // sky near the horizon rather than the sky above (mirroring it up gives bright crest lines)
+  float below = smoothstep(0.0, 0.08, -R.y);
+  R.y = abs(R.y) * mix(1.0, 0.15, below);
+  // extended sources (sky, clouds) are blurred by the full capillary roughness; only the
+  // sun's tiny disk is allowed to resolve into individual sparkles near the camera
+  float rough = sqrt(sigmaSq.x + sigmaSq.y + uUnresolved * 0.88 * (1.0 - smoothstep(4.0, 500.0, dist)));
+  // mip from the BRDF width and from the spread of reflected directions within the pixel
+  float dR = length(fwidth(R));
+  float envLod = clamp(max(log2(rough * 96.0), log2(dR * 256.0 / 3.14159) + 0.5), 0.0, 7.0);
+  vec3 sky = envSample(R, envLod) * mix(1.0, 0.35, below);
   vec3 refl = F * sky;
 
   // sun glitter
@@ -166,7 +191,7 @@ void main() {
   float side = pow(nv, 2.0) * 0.18;
   vec3 sss = uSSS * (1.0 - F) * (H * back * 3.0 * uSunE * sunVis + side * (uSkyE + uSunE * sunVis * max(L.y, 0.0) * 0.3));
 
-  vec3 col = refl + sun + body + sss;
+  vec3 col = refl * uDbgMask.x + sun * uDbgMask.y + (body + sss) * uDbgMask.z;
 
   // foam
   vec2 fc = foamCoverage(vXZ, foamRaw * uFoamAmount, uTime, dist);
@@ -193,6 +218,8 @@ void main() {
   vec3 aL, aT;
   aerial(dir, dist * 0.001, aL, aT);
   col = col * aT + aL;
+  // light shafts through cloud gaps in the haze between the camera and this point
+  col = max(col + shafts(uCamPos, -V, dist), vec3(0.0));
   // rain / mist fog
   col = applyFog(col, -V, dist);
   oColor = vec4(col, 1.0);

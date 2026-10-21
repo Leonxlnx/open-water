@@ -134,7 +134,7 @@ void main() {
 }`;
 
 export class Rain {
-  constructor(gl, { drops = 60000, splashes = 9000 } = {}) {
+  constructor(gl, { drops = 120000, splashes = 12000 } = {}) {
     this.gl = gl;
     this.drops = drops;
     this.splashes = splashes;
@@ -183,7 +183,7 @@ export class Rain {
     this.pStreak.use({
       ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uBox: [36, 22, 36], uTime: u.time,
       uWind: u.wind, uExposure: u.exposure, uLambda: lambda, uCount: Math.min(Math.sqrt(u.rain) * 1.05, 1),
-      uViewport: u.viewport, uPixelAngle: u.pixelAngle, uEnv: u.env, uFlash: u.flash, uGain: u.gain ?? 16,
+      uViewport: u.viewport, uPixelAngle: u.pixelAngle, uEnv: u.env, uFlash: u.flash, uGain: u.gain ?? 9,
     });
     gl.bindVertexArray(this.vaoDrops);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.drops);

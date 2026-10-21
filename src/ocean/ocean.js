@@ -189,9 +189,30 @@ const ASSEMBLE_FS = `
 uniform sampler2D uF0;
 uniform sampler2D uF1;
 uniform sampler2D uPrev;
+// bicubic Catmull-Rom of the foam channel at a texel-space position (periodic)
+float foamCR(sampler2D tex, vec2 pos) {
+  ivec2 n = textureSize(tex, 0);
+  vec2 p = pos - 0.5;
+  vec2 i = floor(p), f = p - i;
+  vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+  vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+  vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+  vec2 w3 = f * f * (-0.5 + 0.5 * f);
+  float r = 0.0;
+  for (int y = -1; y <= 2; y++) {
+    float wy = y == -1 ? w0.y : y == 0 ? w1.y : y == 1 ? w2.y : w3.y;
+    for (int x = -1; x <= 2; x++) {
+      float wx = x == -1 ? w0.x : x == 0 ? w1.x : x == 1 ? w2.x : w3.x;
+      ivec2 c = (ivec2(i) + ivec2(x, y) + n) % n;
+      r += texelFetch(tex, c, 0).w * wx * wy;
+    }
+  }
+  return r;
+}
 uniform float uLambda;
 uniform float uDt;
 uniform vec3 uFoam;  // x: jacobian threshold bias, y: generation gain, z: decay rate (1/s)
+uniform vec2 uDrift; // foam advection by the wind drift (texture uv per second)
 layout(location = 0) out vec4 oDisp;
 layout(location = 1) out vec4 oSlope;
 void main() {
@@ -205,7 +226,9 @@ void main() {
   float jz = 1.0 + uLambda * Dzz;
   float J = jx * jz - uLambda * uLambda * Dxz * Dxz;
   vec2 s = vec2(Dyx / max(jx, 0.25), Dyz / max(jz, 0.25));
-  float prev = texelFetch(uPrev, id, 0).w;
+  // residual foam drifts downwind with the surface (semi-Lagrangian, bilinear: smears into streaks)
+  // Catmull-Rom resampling keeps streaks crisp (bilinear would diffuse them by metres per second)
+  float prev = max(foamCR(uPrev, vec2(id) + 0.5 - uDrift * uDt * vec2(textureSize(uPrev, 0))), 0.0);
   float foam = prev * exp(-uFoam.z * uDt);
   foam += max(uFoam.x - J, 0.0) * uFoam.y * uDt;
   foam = min(foam, 3.0);
@@ -257,6 +280,7 @@ export class Ocean {
     });
     this.params = null;
     this.lambda = 1.0;
+    this.drift = [0, 0]; // m/s
   }
 
   // params: { wind, fetch, dir, scale, swellHs, swellT, swellDir, swellSpread, spreadBlend, choppy }
@@ -306,6 +330,7 @@ export class Ocean {
       fullscreen(gl, this.progAssemble, {
         uF0: src[0], uF1: src[1], uPrev: c.disp[c.cur],
         uLambda: this.lambda, uDt: dt, uFoam: [threshold, gain, foam[2]],
+        uDrift: [this.drift[0] / c.L, this.drift[1] / c.L],
       }, c.targets[next]);
       c.cur = next;
       P && P.section('o.mips');

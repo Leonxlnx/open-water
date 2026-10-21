@@ -35,6 +35,23 @@ function noiseBuffer(ctx, seconds, color, seed = 1) {
   return buf;
 }
 
+// Noise burst with an attack/decay envelope (mono), shaped further by a band-pass at play time.
+function burstBuffer(ctx, seconds, attack, decay, seed) {
+  const n = Math.floor(ctx.sampleRate * seconds);
+  const buf = ctx.createBuffer(1, n, ctx.sampleRate);
+  const d = buf.getChannelData(0);
+  let s = seed >>> 0, lp = 0;
+  for (let i = 0; i < n; i++) {
+    s = (s * 1664525 + 1013904223) >>> 0;
+    const w = s / 4294967296 * 2 - 1;
+    lp += (w - lp) * 0.35;
+    const t = i / ctx.sampleRate;
+    const env = t < attack ? t / attack : Math.exp(-(t - attack) / decay);
+    d[i] = lp * env * 1.6;
+  }
+  return buf;
+}
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
@@ -87,6 +104,9 @@ export class AudioEngine {
       this.rainBed = chain(loop(this.buffers.rain_heavy), this.rainLP, gain());
     }
     this.fizz = chain(loop(white, 0.93), filt('highpass', 4200), filt('lowpass', 13000), gain());
+    // one-shot sources: a short wet slap (fast attack, ~0.12 s decay) and a longer breaking whoosh
+    this.slapBuf = burstBuffer(ctx, 0.45, 0.004, 0.11, 21);
+    this.whooshBuf = burstBuffer(ctx, 2.2, 0.35, 0.9, 33);
     this.scheduledUntil = 0;
     this.thunderQueue = [];
   }
@@ -122,7 +142,7 @@ export class AudioEngine {
     };
   }
 
-  apply(t, p, k = 0.12) {
+  apply(t, p, k = 0.12, window = 0.05) {
     const L = this.levels(t, p);
     const set = (param, v) => param.setTargetAtTime(v, t, k);
     set(this.wash.gain, L.wash); set(this.washLP.frequency, L.washF);
@@ -131,6 +151,38 @@ export class AudioEngine {
     set(this.whistle.gain, L.whistle); set(this.whistleBP.frequency, L.whistleF);
     if (this.rainBed) { set(this.rainBed.gain, L.rain); set(this.rainLP.frequency, L.rainF); }
     set(this.fizz.gain, L.fizz);
+    this.events(t, t + window, p);
+  }
+
+  // One-shots in [t0, t1): water slapping the hull and the whoosh of nearby breaking crests.
+  // Time is cut into slots; a hash per slot decides deterministically whether an event fires.
+  events(t0, t1, p) {
+    const slot = 0.125;
+    const windN = clamp((p.wind - 2) / 23, 0, 1);
+    const slapRate = 0.8 + 1.2 * clamp(p.hs / 4, 0, 1.5);           // per second
+    const breakRate = 6 * Math.sqrt(clamp(p.foam, 0, 0.4));          // per second
+    for (let s = Math.ceil(t0 / slot); s * slot < t1; s++) {
+      const h = hash(s * 1.37 + 0.5), h2 = hash(s * 2.11 + 9.1), h3 = hash(s * 0.71 + 3.3);
+      const at = s * slot + h2 * slot;
+      if (h < slapRate * slot) this.voice(this.slapBuf, at, 0.05 + 0.11 * h3 * (0.5 + clamp(p.hs / 3, 0, 1)), 0.75 + h2 * 0.6, 420 + 900 * h3, (h3 - 0.5) * 0.8);
+      if (hash(s * 3.9 + 1.7) < breakRate * slot) this.voice(this.whooshBuf, at, (0.06 + 0.16 * windN) * (0.4 + h3), 0.8 + h * 0.4, 1600 + 2400 * h2, (h2 - 0.5) * 1.4);
+    }
+  }
+
+  voice(buffer, at, gain, rate, freq, pan) {
+    const ctx = this.ctx;
+    if (at < ctx.currentTime) return;
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    src.playbackRate.value = rate;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass'; bp.frequency.value = freq; bp.Q.value = 0.9;
+    const g = ctx.createGain();
+    g.gain.value = gain;
+    let n = src.connect(bp).connect(g);
+    if (ctx.createStereoPanner) { const pn = ctx.createStereoPanner(); pn.pan.value = pan; n = n.connect(pn); }
+    n.connect(this.bus);
+    src.start(at);
   }
 
   // Live: called every frame; schedules a short window ahead.
@@ -138,8 +190,9 @@ export class AudioEngine {
     if (!this.ctx || this.ctx.state !== 'running') return;
     const now = this.ctx.currentTime;
     if (now + 0.05 < this.scheduledUntil) return;
-    this.apply(now + 0.05, this.params);
-    this.scheduledUntil = now + 0.1;
+    const from = Math.max(this.scheduledUntil, now + 0.05);
+    this.apply(from, this.params, 0.12, now + 0.15 - from);
+    this.scheduledUntil = now + 0.15;
   }
 
   // Thunder from a strike at distance (m): delay by the speed of sound, air absorption removes
@@ -168,11 +221,14 @@ export class AudioEngine {
 }
 
 // Offline soundtrack: params(t) gives the weather timeline, strikes = [{t, dist, power}].
-export async function renderSoundtrack(duration, paramsAt, strikes, sampleRate = 48000) {
+export async function renderSoundtrack(duration, paramsAt, strikes, sampleRate = 48000, gainAt = () => 1) {
   const ctx = new OfflineAudioContext(2, Math.ceil(duration * sampleRate), sampleRate);
   const eng = new AudioEngine();
   await eng.init(ctx);
-  for (let t = 0; t < duration; t += 0.05) eng.apply(t, paramsAt(t), 0.08);
+  for (let t = 0; t < duration; t += 0.05) {
+    eng.apply(t, paramsAt(t), 0.08);
+    eng.master.gain.setTargetAtTime(eng.volume * gainAt(t), t, 0.06);
+  }
   strikes.forEach((s, i) => eng.thunder(s.t, s.dist, s.power, (i * 0.618 + 0.13) % 1));
   return ctx.startRendering();
 }

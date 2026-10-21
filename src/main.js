@@ -147,6 +147,9 @@ export class App {
     P.poll();
     P.begin('ocean');
     this.ocean.lambda = S.choppy;
+    // wind drift of surface foam ~3% of U10 (plus a little Stokes drift)
+    const wdr = (S.windDir * Math.PI) / 180;
+    this.ocean.drift = [Math.cos(wdr) * 0.035 * S.wind, Math.sin(wdr) * 0.035 * S.wind];
     this.ocean.setSpectrum(W.spectrum());
     this.ocean.update(t, dt, W.foam());
     const stats = this.ocean.stats;
@@ -188,12 +191,13 @@ export class App {
     const flashE = flash * 0.012 / (1 + (ldist / 2500) ** 2);
     const flashRGB = [0.8 * flashE, 0.85 * flashE, 1.0 * flashE];
     // rain extinction: visibility ~ 3.9/beta drops from >20 km to ~1.5 km in a downpour
-    const fogDensity = S.mist * 1.2e-3 + S.rain * 1.6e-3;
-    const stormFog = S.sMist * 1.2e-3 + S.sRain * 1.6e-3;
+    const fogDensity = S.mist * 1.2e-3 + S.rain * 1.3e-3;
+    const stormFog = S.sMist * 1.2e-3 + S.sRain * 1.3e-3;
     const fogU = {
-      uFogDensity: fogDensity, uFogTop: fOn ? Math.min(S.cloudBase, S.sBase) : S.cloudBase,
+      uFogDensity: fogDensity, uFogTop: fOn ? S.sBase + 150 : S.cloudBase + 100,
       uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0], uFogStorm: [stormFog, 0.55],
       uFogCam: [this.cam.pos[0], this.cam.pos[2]],
+      uFlashFog: flashRGB.map((x) => x * 0.25),
     };
 
     // clouds advect with the wind aloft (~1.6x surface wind), detail evolves slowly
@@ -213,6 +217,11 @@ export class App {
     P.section('clouds');
     this.clouds.render(skyU, cloudU, { pos: this.cam.pos, inv: M.inv, vp: M.vp });
     P.section('env');
+    // crepuscular rays: haze scattering below the cloud base, shadowed by the cloud-shadow map
+    Object.assign(skyU, {
+      uShaftShadow: this.clouds.shadow, uShaftRect: this.clouds.shadowRect,
+      uShaft: [this.atmo.uniforms.uMie[0] * 1e-3 * 1.6, Math.min(S.cloudBase, fOn ? S.sBase : 1e9), S.clouds > 0.05 ? 1.0 : 0.0, (this.time * 0.618) % 1],
+    });
     this.sky.renderEnv({ ...skyU, ...fogU, uCloudsEnv: this.clouds.env, uCloudsOn: 1, uSunVis: 1 });
 
     // main HDR pass
@@ -235,8 +244,8 @@ export class App {
       uEnv: this.sky.env, uCloudShadow: this.clouds.shadow, uShadowRect: this.clouds.shadowRect,
       uUnresolved: stats.unresolved, uHs: stats.hs,
       uRrs: mixv([0.00022, 0.0019, 0.0088], [0.0011, 0.0032, 0.0046], smoothstep(9, 24, S.wind)), uSSS: [0.004, 0.05, 0.042],
-      uFoamAmount: 1, uTime: t, uRain: L.rain, uFlash: flashRGB,
-      uFoamTex: this.foam.tex, uWindDir: [Math.cos(wd), Math.sin(wd)], uFoamStretch: Math.min(Math.max((S.wind - 11) / 10, 0), 1), uDebug: 0,
+      uFoamAmount: params.has('nofoam') ? 0 : 1, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
+      uFoamTex: this.foam.tex, uWindDir: [Math.cos(wd), Math.sin(wd)], uFoamStretch: Math.min(Math.max((S.wind - 10) / 8, 0), 1), uDebug: 0,
     };
     this.water.draw(this.waterUniforms);
 
@@ -257,8 +266,8 @@ export class App {
 
     P.section('post');
     this.post.run(this.hdr, dt, {
-      time: t, bloom: 0.05, exposureBias: Number(params.get('ev') || 0),
-      skyU, cloudShadow: this.clouds.shadow, incident: 0.75, fade: this.fade ?? 1,
+      time: t, bloom: 0.05, exposureBias: Number(params.get('ev') || 0) - 0.4 * L.dark,
+      skyU, cloudShadow: this.clouds.shadow, incident: 0.75, fade: this.fade ?? 1, whiteBalance: 0.55 + 0.3 * L.dark,
     });
     P.end();
     this.stats = stats;
@@ -305,7 +314,9 @@ export class App {
       return { wind: w.wind, rain: w.rain + ((w.sRain ?? 0) - w.rain) * mc, hs, tp: (2 * Math.PI * Math.max(w.wind, 1)) / (0.855 * 9.81), foam: Math.min(2 * 3.84e-6 * Math.pow(w.wind, 3.41), 0.4) };
     };
     const strikes = film.strikes.map((s) => ({ t: s.t, dist: s.dist, power: s.power }));
-    const buf = await renderSoundtrack(film.duration, paramsAt, strikes);
+    // sound follows the picture fades, but only dips (not silence) at the cut between acts
+    const gainAt = (t) => Math.max(film.fadeAt(t), Math.abs(t - film.acts[1].start) < 1 ? 0.35 : 0);
+    const buf = await renderSoundtrack(film.duration, paramsAt, strikes, 48000, gainAt);
     return encodeWav(buf);
   }
 
@@ -370,11 +381,19 @@ if (!RENDER_MODE) {
   document.head.appendChild(style);
   app.ui = new UI(app, audio);
   let last = performance.now();
+  // dynamic resolution: keep the frame time near 30 fps on slow GPUs, sharpen on fast ones
+  let avg = 1 / 60, settle = 0;
+  const maxScale = params.has('scale') ? app.scale : Math.min(window.devicePixelRatio || 1, 1.5);
   const loop = (now) => {
     const dt = Math.min((now - last) / 1000, 0.1);
     last = now;
     app.frame(dt);
     audio.update(app);
+    avg += (dt - avg) * 0.05;
+    if (!params.has('scale') && (settle += dt) > 2.5 && !document.hidden) {
+      const next = avg > 1 / 26 ? Math.max(app.scale * 0.88, 0.5) : avg < 1 / 50 ? Math.min(app.scale * 1.08, maxScale) : app.scale;
+      if (Math.abs(next - app.scale) > 0.02) { app.scale = next; app.resize(); settle = 0; }
+    }
     requestAnimationFrame(loop);
   };
   requestAnimationFrame(loop);

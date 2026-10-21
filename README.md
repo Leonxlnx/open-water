@@ -5,7 +5,7 @@ hours, rising wind, rain, squall lines, gales and lightning. There are no textur
 image assets. Every wave, cloud, foam bubble and raindrop is computed. The only recorded
 material is sound (rain and thunder).
 
-**Film:** [`media/open-water.mp4`](media/open-water.mp4), one minute, rendered offline by the same engine.
+**Live:** https://leonxlnx.github.io/open-water/ · **Film:** [`media/open-water.mp4`](media/open-water.mp4), one minute, rendered offline by the same engine.
 
 ## What is simulated
 

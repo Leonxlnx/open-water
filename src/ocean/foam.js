@@ -85,16 +85,18 @@ vec2 foamCoverage(vec2 xz, float f, float t, float dist) {
   vec4 a = texture(uFoamTex, p / 5.5);
   vec4 b = texture(uFoamTex, p / 1.9 + vec2(0.37, 0.71));
   vec4 s = texture(uFoamTex, vec2(p.x / 45.0, p.y / 15.0) + vec2(0.13, 0.5));
-  vec4 big = texture(uFoamTex, p / 37.0 + vec2(0.61, 0.27));
+  // large-scale structure stretches along the wind as it strengthens (wind rows of foam)
+  vec4 big = texture(uFoamTex, vec2(p.x / (37.0 * (1.0 + 1.2 * uFoamStretch)), p.y / 37.0) + vec2(0.61, 0.27));
   // multi-scale threshold: the large component makes patch outlines ragged at metre scale
   float T = big.r * 0.4 + a.r * 0.38 + b.r * 0.22;
-  T = mix(T, mix(T, s.b * 0.8 + big.g * 0.25, 0.6), uFoamStretch);
+  T = mix(T, mix(T, s.b * 0.8 + big.g * 0.25, 0.45), uFoamStretch);
   float F = (1.0 - exp(-f * 1.5)) * 0.92;
   // fresh foam is a dense mass; decaying foam opens up along the threshold field.
   // Bubble noise dithers the boundary so it reads as a froth edge, not a painted outline.
-  float margin = F * 1.15 - T + (b.g - 0.5) * 0.16;
+  float margin = F * 1.15 - T + (b.g - 0.5) * 0.16 * min(F * 4.0, 1.0);
   float edge = 0.09 + fwidth(T) * 0.7;
-  float cov = clamp(margin / edge + 0.1, 0.0, 1.0);
+  // gated by density: a trace of foam must not light up the threshold field's thin veins
+  float cov = clamp(margin / edge, 0.0, 1.0) * smoothstep(0.015, 0.1, F);
   // far away: sub-pixel structure averages out to the expected (energy-conserving) coverage
   vec2 g = max(abs(dFdx(p)), abs(dFdy(p))) / 5.5 * 1024.0;
   float far = smoothstep(2.5, 6.5, log2(max(max(g.x, g.y), 1e-3)));
@@ -102,6 +104,8 @@ vec2 foamCoverage(vec2 xz, float f, float t, float dist) {
   float bub = mix(a.g * 0.45 + b.g * 0.35 + big.r * 0.2, 0.8, far);
   // optical thickness: dense where the foam far exceeds its threshold, thin near its edges
   float thick = mix(smoothstep(0.0, 0.45, margin), clamp(F * 1.4, 0.0, 1.0), far) * bub;
+  // churned texture inside dense whitecaps: never a flat sheet of white
+  cov *= mix(0.78 + 0.22 * smoothstep(0.2, 0.8, b.g * 0.6 + a.g * 0.4), 1.0, far);
   // relief of the bubble mass: world-space slope of the structure field (treated as ~15 cm of height),
   // recovered from screen derivatives, for side-lit shading of the foam
   vec2 dpx = dFdx(p), dpy = dFdy(p);

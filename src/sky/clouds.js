@@ -106,7 +106,12 @@ const float RG_M = 6360000.0;
 
 float remapc(float x, float a, float b, float c, float d) { return c + (x - a) / (b - a) * (d - c); }
 float frontMask(vec2 xz) { return uFront.w > 0.0 ? smoothstep(-uFront.w, uFront.w, dot(xz, uFront.xy) - uFront.z) : 0.0; }
-float shellBase() { return uFront.w > 0.0 ? min(uBase, uStormA.w) : uBase; }
+const float SCUD_BASE = 260.0;
+float shellBase() {
+  float b = uFront.w > 0.0 ? min(uBase, uStormA.w) : uBase;
+  bool storm = uDark > 0.5 || (uFront.w > 0.0 && uStormA.y > 0.5);
+  return storm ? min(b, SCUD_BASE) : b;
+}
 float shellTop() { return uFront.w > 0.0 ? max(uTop, uStormTop) : uTop; }
 float maxCoverage() { return uFront.w > 0.0 ? max(uCoverage, uStormA.x) : uCoverage; }
 
@@ -119,7 +124,17 @@ vec4 regime(vec2 xz, out float base, out float top) {
 }
 
 float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top) {
-  if (h < base || h > top) return 0.0;
+  // scud (fractus): ragged low fragments racing under a storm deck
+  if (h < base) {
+    if (R.y < 0.5 || h < SCUD_BASE) return 0.0;
+    float sh = (h - SCUD_BASE) / max(base - SCUD_BASE, 1.0);
+    vec3 sp2 = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z) * 1.8) / vec3(1400.0, 500.0, 1400.0);
+    vec4 n2 = texture(uShape, sp2);
+    float frag = n2.r * 0.7 + n2.g * 0.3;
+    float d2 = smoothstep(0.8, 0.93, frag) * smoothstep(0.0, 0.35, sh) * (1.0 - smoothstep(0.55, 1.0, sh));
+    return d2 * R.z * 0.6 * (R.y - 0.5) * 2.0;
+  }
+  if (h > top) return 0.0;
   float hf = (h - base) / (top - base);
   float cov = R.x, dark = R.y;
   vec2 wuv = (p.xz + uWindOffset.xz) / 30000.0;
@@ -134,7 +149,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   // which is what gives an overcast its mottled light and dark patches.
   float baseFrac = mix(0.0, (wf - 0.45) * 0.14 + 0.03, dark);
   float topCu = mix(0.45, 1.0, wm.g);
-  float topSt = mix(0.3, 1.0, clamp(wm.b * 0.8 + n.r * 0.5 - 0.15, 0.0, 1.0));
+  float topSt = mix(0.18, 1.0, clamp(wm.b * 0.9 + n.r * 0.7 - 0.3, 0.0, 1.0));
   float tf = mix(topCu, topSt, dark);
   float hg = smoothstep(baseFrac, baseFrac + mix(0.07, 0.05, dark), hf) * (1.0 - smoothstep(tf * 0.55, tf, hf));
   float shape = remapc(n.r, wf - 1.0, 1.0, 0.0, 1.0);
@@ -216,7 +231,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       if (cloudDensityR(p, h, false, R, base, top) > 0.0) {
         inside = true; miss = 0;
         if (allowBack) { t = max(t - coarse, t0); allowBack = false; continue; }
-      } else { t += coarse; continue; }
+      } else { t += max(coarse, t * 0.018); continue; }
     }
     // distance LOD: erosion detail and long light paths are sub-pixel far away
     bool nearField = t < 14000.0;
@@ -237,6 +252,8 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
         tau += cloudDensity(lp, lh, j < lightDetail) * ls;
         ls *= 1.85;
       }
+      // scud sits under the deck: sunlight must cross the whole layer above it
+      if (h < base) tau += R.z * (top - base) * 0.25 / max(uSunDir.y, 0.1);
       float ms = ph0 * exp(-tau) + 0.5 * ph1 * exp(-0.5 * tau) + 0.25 * ph2 * exp(-0.25 * tau);
       // powder: in-scattering probability is low at cloud edges facing the light
       float powder = 1.0 - exp(-2.0 * tau - sigma * 80.0);
@@ -260,6 +277,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       float diffUp = 1.0 / (1.0 + 0.11 * tauUp);
       vec3 sun = sunE * (ms * mix(1.0, powder, 0.55 * (1.0 - max(cosT, 0.0))) + diffSun * 0.06 * max(uSunDir.y + 0.1, 0.0));
       vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 2.0;
+      if (h < base) amb *= 0.5; // scud: self-shadowed fragments read darker than the deck
       vec3 S = (sun + amb) * sigma;
       if (uFlash.w > 0.0) {
         float fd = length(p - uFlash.xyz);

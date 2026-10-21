@@ -19,18 +19,18 @@ const ACT1 = {
 const ACT2 = {
   start: 21, end: 60,
   weather: [
-    [21, { wind: 9, windDir: 230, clouds: 0.42, cloudDark: 0.05, cloudBase: 1300, rain: 0, mist: 0, haze: 2, choppy: 0.9, waveScale: 1, swellHs: 1.4, swellDir: 215, sunElev: 30, sunAz: 228, lightning: 0, fetch: 900,
-      front: 1, frontDist: 17000, frontAz: 52, frontWidth: 2600, sClouds: 0.97, sDark: 0.9, sBase: 600, sRain: 1, sMist: 0.35 }],
+    [21, { wind: 9, windDir: 230, clouds: 0.42, cloudDark: 0.05, cloudBase: 950, rain: 0, mist: 0, haze: 2, choppy: 0.9, waveScale: 1, swellHs: 1.4, swellDir: 215, sunElev: 30, sunAz: 228, lightning: 0, fetch: 900,
+      front: 1, frontDist: 17000, frontAz: 52, frontWidth: 2600, sClouds: 0.97, sDark: 0.9, sBase: 650, sRain: 0.6, sMist: 0.15 }],
     [32, { wind: 12, frontDist: 7500, haze: 2.5, choppy: 0.95, swellHs: 1.7 }],
-    [40, { wind: 17, frontDist: 0, haze: 3.5, choppy: 1.0, swellHs: 2.2, fetch: 1500 }],
-    [47, { wind: 22, frontDist: -4000, haze: 4.5, choppy: 1.05, swellHs: 2.8 }],
-    [60, { wind: 23.5, frontDist: -6500, haze: 5, choppy: 1.05, swellHs: 3.0 }],
+    [40, { wind: 17, frontDist: 0, haze: 2.8, choppy: 1.0, swellHs: 2.2, fetch: 1500 }],
+    [47, { wind: 22, frontDist: -4000, haze: 3, choppy: 1.05, swellHs: 2.8 }],
+    [60, { wind: 23.5, frontDist: -6500, haze: 3, choppy: 1.05, swellHs: 3.0 }],
   ],
   camera: [
     [21, { yaw: 62, pitch: 3.2, eye: 2.6, fov: 46 }],
-    [36, { yaw: 50, pitch: 4.0, eye: 3.0, fov: 50 }],
-    [48, { yaw: 38, pitch: 3.0, eye: 3.4, fov: 52 }],
-    [60, { yaw: 30, pitch: 3.0, eye: 3.6, fov: 54 }],
+    [36, { yaw: 50, pitch: 5.0, eye: 3.0, fov: 52 }],
+    [48, { yaw: 38, pitch: 7.0, eye: 3.4, fov: 56 }],
+    [60, { yaw: 30, pitch: 6.0, eye: 3.6, fov: 58 }],
   ],
 };
 

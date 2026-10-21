@@ -303,7 +303,7 @@ void aerial(vec3 d, float distKm, out vec3 L, out vec3 T) {
   T = texture(uAerialT, uv).rgb;
   // under a cloud deck the haze is lit by diffuse light from the cloud base, not the sun
   float ext = 1.0 - dot(T, vec3(0.3333));
-  L = L * uHazeSun + ext * skyIrradiance() * (0.9 / (4.0 * 3.14159)) * (1.0 - uHazeSun);
+  L = L * uHazeSun + ext * skyIrradiance() * (0.9 / (2.0 * 3.14159)) * (1.0 - uHazeSun);
 }
 vec3 sunTransmittanceAt(float hKm, float mu) {
   const float Rg_ = 6360.0, Rt_ = 6460.0;
@@ -323,17 +323,55 @@ vec3 sunIlluminance() { return sunTransmittanceAt(uCamHkm, uSunDir.y); }
 // Lit by the diffuse sky/cloud light plus a forward-scattering sun lobe (droplets, g ~ 0.7).
 uniform float uFogDensity;
 uniform float uFogTop;
+uniform vec3 uFlashFog;   // lightning light scattered by rain and mist
 vec3 fogRadiance(vec3 dir) {
   float c = dot(dir, uSunDir);
   float g = 0.7;
   float ph = (1.0 - g * g) / (4.0 * 3.14159 * pow(1.0 + g * g - 2.0 * g * c, 1.5));
-  return skyIrradiance() * (0.92 / (4.0 * 3.14159)) + sunIlluminance() * uHazeSun * ph * 0.92;
+  // thick haze in a hemisphere-lit field: in-scatter -> albedo * E / (2 pi) (sky above, dark sea below)
+  return skyIrradiance() * (0.92 / (2.0 * 3.14159)) + sunIlluminance() * uHazeSun * ph * 0.92 + uFlashFog;
 }
 float fogPathLength(vec3 dir, float dist) {
   // the veil only exists below the cloud base
   float toTop = dir.y > 0.0 ? uFogTop / max(dir.y, 0.015) : 1e9;
   return min(dist, toTop);
 }
+// Crepuscular rays: single scattering by the marine haze below the cloud base, with sun visibility
+// taken from the cloud-shadow map (a point at height y sees the sun if the sea-level point it maps
+// to along the sun direction does). Returns added radiance along the first dist metres.
+uniform sampler2D uShaftShadow;
+uniform vec4 uShaftRect;     // shadow map origin xz, 1/size
+uniform vec4 uShaft;         // x: haze scattering (1/m), y: layer top (m), z: strength, w: jitter
+vec3 shafts(vec3 ro, vec3 dir, float dist) {
+  if (uShaft.z <= 0.0 || uSunDir.y < 0.02) return vec3(0.0);
+  float top = uShaft.y;
+  float tMax = dist;
+  if (dir.y > 0.0) tMax = min(tMax, (top - ro.y) / max(dir.y, 1e-3));
+  tMax = min(tMax, 12000.0);
+  if (tMax <= 0.0) return vec3(0.0);
+  const int N = 14;
+  float vis = 0.0;
+  float wsum = 0.0;
+  for (int i = 0; i < N; i++) {
+    // denser samples near the camera (quadratic), jittered per pixel
+    float f = (float(i) + fract(uShaft.w + 52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))))) / float(N);
+    float t = tMax * f * f;
+    vec3 p = ro + dir * t;
+    vec2 xz0 = p.xz - uSunDir.xz * (max(p.y, 0.0) / uSunDir.y);
+    float v = texture(uShaftShadow, (xz0 - uShaftRect.xy) * uShaftRect.zw).r;
+    float w = 2.0 * f;          // dt for the quadratic distribution
+    vis += v * w;
+    wsum += w;
+  }
+  vis /= max(wsum, 1e-4);
+  float c = dot(dir, uSunDir);
+  float g = 0.76;
+  float ph = (1.0 - g * g) / (4.0 * 3.14159 * pow(1.0 + g * g - 2.0 * g * c, 1.5));
+  // only the deviation from the mean visibility adds contrast; the mean is already in the LUTs
+  float trans = exp(-uShaft.x * tMax);
+  return sunIlluminance() * uShaft.x * ph * (1.0 - trans) / max(uShaft.x, 1e-9) * (vis - uHazeSun) * uShaft.z;
+}
+
 // Squall front: rain curtains beyond the line dot(xz, n) = offset, ramping over +-width.
 uniform vec4 uFogFront;   // xy normal (towards the storm), z offset (m), w width (0 = off)
 uniform vec2 uFogStorm;   // storm-side extinction (1/m), storm-side brightness factor
@@ -360,8 +398,12 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0);
     tau += st;
     stormFrac = st / max(tau, 1e-6);
+    // fine vertical streaks of falling rain, slanted by the wind, where the ray meets the curtain
+    float hc = max(dir.y * max(tc, 0.0), 0.0);
+    float streak = fogNoise(along / 520.0 + hc / 900.0) * 0.55 + fogNoise(along / 190.0 + hc / 380.0 + 3.0) * 0.3 + fogNoise(along / 61.0 + hc / 140.0 + 9.0) * 0.15;
+    stormFrac *= 0.62 + 0.76 * streak * streak;
   }
   float T = exp(-tau);
-  return mix(fogRadiance(dir) * mix(1.0, uFogStorm.y, stormFrac), col, T);
+  return mix(fogRadiance(dir) * mix(1.0, uFogStorm.y, clamp(stormFrac, 0.0, 1.0)), col, T);
 }
 `;

@@ -2,7 +2,7 @@
 import { PRESETS } from './weather.js';
 
 const SLIDERS = [
-  { key: 'wind', label: 'Wind', min: 0.5, max: 26, step: 0.1, fmt: (v) => `${v.toFixed(1)} m/s` },
+  { key: 'wind', label: 'Wind', min: 0.5, max: 26, step: 0.1, fmt: (v) => `${v.toFixed(1)} m/s · Bf ${beaufort(v)}` },
   { key: 'waveScale', label: 'Waves', min: 0.2, max: 1.8, step: 0.01, fmt: (v) => `${Math.round(v * 100)}%` },
   { key: 'choppy', label: 'Chop', min: 0, max: 1.4, step: 0.01, fmt: (v) => v.toFixed(2) },
   { key: 'rain', label: 'Rain', min: 0, max: 1, step: 0.01, fmt: (v) => `${Math.round(v * 50)} mm/h` },
@@ -11,6 +11,12 @@ const SLIDERS = [
   { key: 'sunElev', label: 'Sun height', min: -3, max: 75, step: 0.1, fmt: (v) => `${v.toFixed(1)}°` },
   { key: 'sunAz', label: 'Sun bearing', min: 0, max: 360, step: 1, fmt: (v) => `${Math.round(v)}°` },
 ];
+
+// Beaufort force from 10 m wind speed (WMO upper limits, m/s)
+const beaufort = (v) => {
+  const i = [0.5, 1.5, 3.3, 5.5, 7.9, 10.7, 13.8, 17.1, 20.7, 24.4, 28.4, 32.6].findIndex((x) => v < x);
+  return i < 0 ? 12 : i;
+};
 
 const ICON = {
   sound: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M4 9.5v5h3.5L12 18V6L7.5 9.5H4z"/><path class="wave" d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/><path class="mute" d="M16 9.5l5 5M21 9.5l-5 5"/></svg>',
@@ -48,6 +54,12 @@ export class UI {
     this.bind();
     this.sync();
     this.idle();
+    // live significant wave height next to the wave slider
+    setInterval(() => {
+      const hs = this.app.stats && this.app.stats.hs;
+      const o = this.root.querySelector('[data-out="waveScale"]');
+      if (hs && o) o.textContent = `Hs ${hs.toFixed(1)} m`;
+    }, 500);
   }
 
   bind() {

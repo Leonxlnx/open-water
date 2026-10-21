@@ -37,9 +37,10 @@ try {
 
   const ff = spawn('ffmpeg', [
     '-y', '-loglevel', 'error',
-    '-f', 'image2pipe', '-framerate', String(fps), '-c:v', 'png', '-i', '-',
+    '-f', 'rawvideo', '-pix_fmt', 'rgba', '-s', `${size[0]}x${size[1]}`, '-framerate', String(fps), '-i', '-',
     ...(args.noaudio ? [] : ['-ss', String(from), '-i', wavPath]),
-    '-c:v', 'libx264', '-preset', 'slow', '-crf', crf, '-pix_fmt', 'yuv420p', '-profile:v', 'high',
+    '-vf', 'vflip', '-c:v', 'libx264', '-preset', 'slow', '-crf', crf, '-pix_fmt', 'yuv420p', '-profile:v', 'high',
+    '-color_primaries', 'bt709', '-color_trc', 'bt709', '-colorspace', 'bt709',
     '-x264-params', 'aq-mode=3:deblock=-1,-1', '-tune', 'film',
     ...(args.noaudio ? [] : ['-c:a', 'aac', '-b:a', '256k', '-shortest']),
     '-movflags', '+faststart', out,
@@ -55,9 +56,15 @@ try {
   const t0 = Date.now();
   for (let i = 0; i < total; i++) {
     const t = from + i / fps;
+    // raw RGBA (lossless, ~3x faster than PNG); rows are bottom-up, flipped by ffmpeg
     const b64 = await page.evaluate((t, dt) => {
       app.filmFrame(t, dt);
-      return app.canvas.toDataURL('image/png').slice(22);
+      const gl = app.gl;
+      const px = (window.__px ||= new Uint8Array(app.w * app.h * 4));
+      gl.readPixels(0, 0, app.w, app.h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      let s = '';
+      for (let j = 0; j < px.length; j += 0x8000) s += String.fromCharCode.apply(null, px.subarray(j, j + 0x8000));
+      return btoa(s);
     }, t, 1 / fps);
     const buf = Buffer.from(b64, 'base64');
     if (!ff.stdin.write(buf)) await new Promise((r) => ff.stdin.once('drain', r));

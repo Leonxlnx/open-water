@@ -31,6 +31,7 @@ void main() {
     col = skyRadiance(d) * cl.a + sunPart * cl.a * cl.a * cl.a + cl.rgb;
   }
   // rain/mist veil towards the horizon
+  col = max(col + shafts(uCamPos, d, 1e9), vec3(0.0));
   col = applyFog(col, d, 1e9);
   o = vec4(col, 1.0);
 }`;
