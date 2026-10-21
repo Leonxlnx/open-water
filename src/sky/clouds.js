@@ -203,17 +203,19 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   // Storm: a layer deck whose base undulates (rolls, scud) and whose thickness varies 2-3x,
   // which is what gives an overcast its mottled light and dark patches.
   // storm decks: a rolling, lumpy base
-  float baseFrac = mix(0.0, (wf - 0.45) * 0.3 + 0.04, dark);
+  float baseFrac = mix(0.0, ((wf - 0.45) * 400.0 + 60.0) / max(top - base, 100.0), dark);
   float topCu = mix(0.45, 1.0, wm.g);
   float cells = uFront.w > 0.0 ? smoothstep(0.35, 0.75, wm.b * 0.6 + sin(dot(p.xz, vec2(-uFront.y, uFront.x)) / 5200.0) * 0.25 + 0.3) : 0.0;
   float topSt = mix(0.18, 1.0, clamp(wm.b * 0.9 + n.r * 0.7 - 0.3 + cells * 0.6, 0.0, 1.0));
   // the anvil itself: a flat, smooth spreading layer near the top of the storm
   topSt = max(topSt, step(0.86, hf) * dark);
   // cumulus tops dome over the core of the coverage cell instead of a flat slab
-  float tf = mix(topCu * mix(0.35, 1.0, smoothstep(0.0, 0.85, c)), topSt, dark);
+  float tf = mix(topCu * mix(0.55, 1.0, smoothstep(0.0, 0.85, c)), topSt, dark);
   // per-cloud base height (flat bases that differ from cloud to cloud)
   baseFrac += (wm.g - 0.5) * 0.05 * (1.0 - dark);
-  float hg = smoothstep(baseFrac, baseFrac + mix(0.015, 0.05, dark), hf) * (1.0 - smoothstep(tf * 0.55, tf, hf));
+  float hg = smoothstep(baseFrac, baseFrac + mix(110.0, 140.0, dark) / max(top - base, 100.0), hf) * (1.0 - smoothstep(tf * 0.55, tf, hf));
+  bool anvilSlab = dark > 0.5 && hf > 0.8;
+  if (anvilSlab) hg = smoothstep(baseFrac, baseFrac + 0.05, hf) * (1.0 - smoothstep(0.95, 1.0, hf));
   float shape = remapc(n.r, wf - 1.0, 1.0, 0.0, 1.0);
   if (R.w > 0.6 && hf < 0.8) shape = max(shape, 0.35 * smoothstep(0.6, 0.9, R.w));
   float d = shape * hg;
@@ -226,12 +228,14 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     float df = dn.r * 0.625 + dn.g * 0.25 + dn.b * 0.125;
     // a finer octave (~140 m) for cauliflower lobes
     vec3 dn2 = textureLod(uDetail, dp * 3.0 + 0.41, lodFor(140.0 / 32.0)).rgb;
-    df = mix(df, dn2.r * 0.625 + dn2.g * 0.25 + dn2.b * 0.125, 0.3);
+    // (only where it is resolved, and not on closed decks: no sub-pixel speckle, no cotton balls)
+    float w2 = 0.3 * (1.0 - smoothstep(1.0, 2.0, lodFor(140.0 / 32.0))) * (1.0 - smoothstep(0.88, 0.97, cov));
+    df = mix(df, dn2.r * 0.625 + dn2.g * 0.25 + dn2.b * 0.125, w2);
     // wispy at the base, billowy towards the tops
     // fair-weather cumulus are billowy everywhere; decks wispy at the base
     float dm = mix(1.0 - df, mix(df, 1.0 - df, clamp(hf * 5.0, 0.0, 1.0)), dark);
-    float thr = dm * mix(0.55, 0.45, dark) * mix(0.35, 1.0, smoothstep(0.02, 0.12, hf));
-    d = clamp(remapc(d, thr, thr + (1.0 - thr) * 0.5, 0.0, 1.0), 0.0, 1.0);
+    float thr = dm * mix(0.55, 0.45, dark) * mix(1.0, 0.3, smoothstep(0.88, 0.97, cov)) * (anvilSlab ? 0.0 : 1.0);
+    d = clamp(remapc(d, thr, thr + (1.0 - thr) * mix(0.25, 0.5, dark), 0.0, 1.0), 0.0, 1.0);
   }
   return max(max(d, 0.0) * R.z, shelf);
 }
@@ -300,9 +304,10 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
   float wsum = 0.0;
   float cosT = dot(rd, uSunDir);
   // multiple-scattering octaves (Wrenninge 2013): energy a^i, extinction b^i, eccentricity c^i
-  float ph0 = mix(hg(cosT, 0.82), hg(cosT, -0.3), 0.35);
-  float ph1 = mix(hg(cosT, 0.41), hg(cosT, -0.15), 0.35);
-  float ph2 = mix(hg(cosT, 0.2), hg(cosT, -0.07), 0.35);
+  float ph0 = mix(hg(cosT, 0.82), hg(cosT, -0.3), 0.5);
+  float ph1 = mix(hg(cosT, 0.41), hg(cosT, -0.15), 0.5);
+  float ph2 = mix(hg(cosT, 0.2), hg(cosT, -0.07), 0.5);
+  float ph3 = mix(hg(cosT, 0.1), hg(cosT, -0.035), 0.5);
   bool inside = false;
   bool allowBack = true;
   int miss = 0;
@@ -353,13 +358,13 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       }
       // scud sits under the deck: sunlight must cross the whole layer above it
       if (h < base) tau += R.z * (top - base) * 0.25 / max(uSunDir.y, 0.1);
-      float ms = ph0 * exp(-tau) + 0.5 * ph1 * exp(-0.5 * tau) + 0.25 * ph2 * exp(-0.25 * tau);
+      float ms = ph0 * exp(-tau) + 0.7 * ph1 * exp(-0.5 * tau) + 0.49 * ph2 * exp(-0.25 * tau) + 0.343 * ph3 * exp(-0.125 * tau);
       // powder: in-scattering probability is low at cloud edges facing the light
       float powder = 1.0 - exp(-2.0 * tau - sigma * 80.0);
       // optical depth of the column above: diffuse light filtering down through the deck
       float tauUp = 0.0;
       if (R.x > 0.55) {
-        float us = 180.0;
+        float us = 180.0, marchedUp = 0.0, uhLast = h;
         vec3 up = p;
         for (int j = 0; j < 4; j++) {
           if (j >= uUpSteps) break;
@@ -367,8 +372,10 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
           float uh = heightOf(up);
           if (uh > top) break;
           tauUp += cloudDensityR(up, uh, false, R, base, top) * us;
+          marchedUp += us; uhLast = uh;
           us *= uUpSteps < 3 ? 4.5 : 2.4;
         }
+        if (R.y > 0.5 && marchedUp > 0.0) tauUp += tauUp / marchedUp * max(top - uhLast, 0.0);
       } else {
         tauUp = sigma * (1.0 - hf) * (top - base) * 0.35;
       }
@@ -384,12 +391,12 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // the diffused light carries the colour of the whole illumination at the cloud top: sun + skylight
       // diffused deck light mixes sun and blue skylight: neutral-cool (~6500 K) at the sun's luminance
       vec3 diffCol = dot(sunE, vec3(0.2126, 0.7152, 0.0722)) * vec3(0.93, 1.0, 1.09);
-      vec3 sun = sunE * ms * mix(1.0, powder, 0.55 * (1.0 - max(cosT, 0.0))) + diffCol * diffuse;
+      vec3 sun = sunE * ms * mix(1.0, powder, 0.25 * (1.0 - max(cosT, 0.0))) + diffCol * diffuse;
       vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 0.6;
       // the face toward the camera reflects the sky/sea light behind the camera where the column
       // above no longer lets skylight through
       // (a storm face: its shadowed sides fall to ~30% of the sunlit side)
-      amb += ambFace * (1.0 - diffUp) * smoothstep(0.5, 0.9, R.x) * mix(1.0, 0.55, R.w);
+      amb += ambFace * (1.0 - diffUp) * smoothstep(0.5, 0.9, R.x) * mix(1.0, 0.55, R.w) * mix(1.0, smoothstep(0.03, 0.25, hf), step(0.5, R.y));
       if (h < base) amb *= 0.3; // scud: fragments in the deck's shade read darker than the deck
       vec3 S = (sun + amb) * sigma;
       if (uFlash.w > 0.0) {
@@ -445,7 +452,7 @@ void main() {
   ivec2 ip = ivec2(gl_FragCoord.xy);
   int slot = (ip.x & 1) + 2 * (ip.y & 1);
   if (uCheck == 1 && valid && uBlend < 0.5 && slot != (int(uFrame) & 3)) { o = hist; oD = vec4(histD); return; }
-  float j = fract(ign(gl_FragCoord.xy) + uFrame * 0.618034);
+  float j = ign(gl_FragCoord.xy + 5.588238 * uFrame);
   float hKm = max(uBase, 0.0) * 0.001;
   vec3 sunE = sunTransmittanceAt(hKm + 0.5, uSunDir.y);
   vec3 zen = skyRadiance(vec3(0.0, 1.0, 0.0));
@@ -496,7 +503,7 @@ void main() {
   vec3 rd = vec3(cos(phi) * sin(theta), cos(theta), sin(phi) * sin(theta));
   if (rd.y < 0.0) { o = vec4(0.0, 0.0, 0.0, 1.0); return; }
   rd = normalize(rd + vec3(0.0, 0.002, 0.0));
-  float j = fract(ign(gl_FragCoord.xy) + uFrame * 0.618034);
+  float j = ign(gl_FragCoord.xy + 5.588238 * uFrame);
   vec3 sunE = sunTransmittanceAt(uBase * 0.001 + 0.5, uSunDir.y);
   vec3 zen = skyRadiance(vec3(0.0, 1.0, 0.0));
   vec3 hor = skyRadiance(normalize(vec3(uSunDir.z, 0.15, -uSunDir.x)));
