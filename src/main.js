@@ -268,7 +268,7 @@ export class App {
       uUnresolved: stats.unresolved, uMssTotal: Math.max(stats.coxMunk, stats.resolvedMss + stats.unresolved), uHs: stats.hs,
       uRrs: mixv([0.00022, 0.0019, 0.0088], [0.0011, 0.0038, 0.0038], Math.max(smoothstep(9, 24, S.wind), smoothstep(0.1, 0.8, L.rain) * 0.75)), uSSS: [0.004, 0.05, 0.042],
       uGust: [0.35 + 0.45 * smoothstep(3, 9, S.wind) * (1 - smoothstep(16, 24, S.wind)), this.gustDrift[0], this.gustDrift[1]],
-      uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(10.5, 20, S.wind) * 0.45, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
+      uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(14, 22, S.wind) * 0.45, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
       uFoamTex: this.foam.tex, uWindDir: [Math.cos(wd), Math.sin(wd)], uFoamStretch: Math.min(Math.max((S.wind - 10) / 8, 0), 1), uDebug: 0,
     };
     this.water.draw(this.waterUniforms);
@@ -303,7 +303,7 @@ export class App {
     P.section('post');
     this.post.run(this.hdr, dt, {
       time: t, bloom: 0.015, exposureBias: Number(params.get('ev') || 0) - 1.2 * L.dark * L.dark,
-      skyU, cloudShadow: this.clouds.shadow, incident: 0.75 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : 0.1 + 0.45 * smoothstep(0.6, 0.95, L.clouds) * (fOn ? smoothstep(0.8, 1.0, mCam) : 1) * (night ? 0 : 1), night: night ? 1 : 0,
+      skyU, cloudShadow: this.clouds.shadow, incident: 0.75 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : 0.1 + 0.25 * smoothstep(0.6, 0.95, L.clouds) * (night ? 0 : 1), night: night ? 1 : 0,
       look: params.has('look') ? params.get('look').split(',').map(Number) : undefined,
     });
     P.end();

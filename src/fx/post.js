@@ -56,7 +56,9 @@ void main() {
   // centre-weighted metering
   vec2 d = vUv - 0.5;
   float w = exp(-dot(d, d) * 3.0);
-  o = vec4(log(max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-6)) * w, w, 0.0, 1.0);
+  // log luminance and log chroma (R/G, B/G): geometric means over the frame via the mip chain
+  c = max(c, vec3(1e-6));
+  o = vec4(log(max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-6)) * w, w, log(c.r / c.g) * w, log(c.b / c.g) * w);
 }`;
 
 const ADAPT_FS = SKY_LOOKUP_GLSL + `
@@ -78,10 +80,11 @@ void main() {
   vec3 E = sunIlluminance() * vis * max(uSunDir.y, 0.0) + skyIrradiance();
   float grey = 0.18 * dot(E, vec3(0.2126, 0.7152, 0.0722)) / 3.14159;
   float target = exp(mix(scene, log(max(grey, 1e-6)), uIncident));
-  // white balance (von Kries, partial): neutralise part of the illuminant's colour cast
-  float Ey = max(dot(E, vec3(0.2126, 0.7152, 0.0722)), 1e-6);
-  // (a camera's AWB moves along the daylight locus by a limited amount: ~5000-7500 K)
-  vec3 wb = clamp(pow(Ey / max(E, vec3(1e-6)), vec3(uWhiteBalance)), vec3(0.82), vec3(1.22));
+  // white balance (von Kries, partial) from the scene's mean chroma (grey world), as a camera's AWB
+  // estimates it from what is in the frame, limited to the daylight range (~5000-7500 K)
+  vec3 chroma = vec3(exp(l.z / max(l.y, 1e-6)), 1.0, exp(l.w / max(l.y, 1e-6)));
+  float cy = dot(chroma, vec3(0.2126, 0.7152, 0.0722));
+  vec3 wb = clamp(pow(cy / chroma, vec3(uWhiteBalance)), vec3(0.82), vec3(1.22));
   wb /= dot(wb, vec3(0.2126, 0.7152, 0.0722));
   vec4 prevT = texelFetch(uPrev, ivec2(0), 0);
   float prev = prevT.r;
@@ -178,7 +181,7 @@ export class Post {
     this.pLum = new Program(gl, FULLSCREEN_VS, LUM_FS, { label: 'lum' });
     this.pAdapt = new Program(gl, FULLSCREEN_VS, ADAPT_FS, { label: 'adapt' });
     this.pComp = new Program(gl, FULLSCREEN_VS, COMPOSITE_FS, { label: 'composite' });
-    this.lum = new Texture(gl, { w: 256, h: 256, format: 'rg16f', mips: true });
+    this.lum = new Texture(gl, { w: 256, h: 256, format: 'rgba16f', mips: true });
     this.lumTarget = new Target(gl, [this.lum]);
     this.adapt = [0, 1].map(() => new Texture(gl, { w: 1, h: 1, format: 'rgba32f', filter: 'nearest' }));
     this.adaptTargets = this.adapt.map((t) => new Target(gl, [t]));

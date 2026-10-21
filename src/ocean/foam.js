@@ -97,6 +97,8 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   vec4 big = texture(uFoamTex, vec2(p.x / (37.0 * (1.0 + 1.2 * uFoamStretch)), p.y / 37.0) + vec2(0.61, 0.27));
   // a crest breaks in segments of a few metres, not along its whole length
   float seg = texture(uFoamTex, vec2(p.x / 9.0, p.y / 6.0) + vec2(0.43, 0.19)).r;
+  // wind rows: bands ~60 m long and a few metres wide along the wind (Langmuir convergence lines)
+  float wr = texture(uFoamTex, vec2(p.x / 140.0, p.y / 64.0) + vec2(0.71, 0.37)).b;
   // multi-scale threshold: the large component makes patch outlines ragged at metre scale
   // filament-scale threshold: foam structure lives at 0.3-2 m; the 37 m field only modulates
   float T = big.r * 0.18 + a.r * 0.42 + b.r * 0.4;
@@ -124,12 +126,13 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   // crisp froth edges near, softening only as the structure becomes sub-pixel
   float edge = 0.035 + fwT * 0.6 + fwV * 0.4 + far * 0.2;
   // residual foam gathers into wind rows (streaks along the wind) as the gale strengthens
-  float Fs = F * mix(1.0, 0.3 + 1.4 * s.b, uFoamStretch * 0.7);
+  float Fs = F * mix(1.0, 0.35 + 1.4 * smoothstep(0.25, 0.75, wr), uFoamStretch);
   // a bubble raft never fills its cells: the centres stay open, so old foam stays a network
   float mA = A * 1.08 - Pa, mR = Fs * 0.62 - Pr;
   float covA = smoothstep(-edge, edge, mA);
   // residual foam is a thinner bubble raft: translucent, the water shows through
-  float covR = smoothstep(-edge, edge, mR) * 0.85;
+  // ... and thins as it ages: old foam is a translucent film that takes the water's tint
+  float covR = smoothstep(-edge, edge, mR) * mix(0.4, 0.85, smoothstep(0.15, 0.7, F));
   // far away the structure is sub-pixel: the expected coverage (energy conserving)
   covA = mix(covA, clamp(A * 0.95, 0.0, 1.0), far);
   covR = mix(covR, clamp(Fs * 0.7, 0.0, 1.0) * 0.85, far);
@@ -138,12 +141,14 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   float lc = 0.0;
   if (lace > 0.003) {
     // lace persists where whitecaps broke recently (old foam f) and in wind-row patches (big.b)
-    float rafts = smoothstep(0.25, 0.7, big.b * 0.8 + clamp(f * 2.0, 0.0, 1.0) * 0.4);
-    // line width: physical, but never under ~1.5 px (hairlines alias into 'cracked ice')
-    float wid = max((0.05 + lace * 0.18) * (0.6 + rafts), fwV * 1.5);
-    // a translucent bubble film, not opaque paint
+    // lace persists only where foam actually was (old foam f), patchy at the wind-row scale
+    float rafts = smoothstep(0.01, 0.15, f) * smoothstep(0.15, 0.6, big.b);
+    float wid = (0.05 + lace * 0.18) * (0.6 + rafts);
+    // a translucent bubble film, not opaque paint; once the lines are thinner than ~2.5 px they
+    // fade to their mean coverage instead of breaking into hairline confetti
+    float lcMean = lace * 0.22 * rafts;
     lc = (1.0 - smoothstep(wid * 0.35, wid, vein)) * smoothstep(0.0, 0.08, lace) * rafts * 0.6;
-    lc = mix(lc, lace * 0.22 * rafts, far);
+    lc = mix(lcMean, lc, smoothstep(1.5, 3.0, wid / max(fwV, 1e-4)) * (1.0 - far));
   }
   float bub = mix(a.g * 0.45 + b.g * 0.35 + big.r * 0.2, 0.8, far);
   // optical thickness: dense where the foam far exceeds its threshold, thin near its edges

@@ -52,7 +52,7 @@ void main() {
   float al = length(along);
   along = al > 0.2 ? along / al : right;
   vec3 up = normalize(cross(vdir, along));
-  vec3 P = pos + along * c.x * size * 3.5 + up * c.y * size * 0.45;
+  vec3 P = pos + along * c.x * size * 2.4 + up * c.y * size * 0.7;
   vUv = c + 0.5;
   vAlpha = alive * sin(3.14159 * age) * (1.0 - smoothstep(uRadius * 0.6, uRadius, dist)) * smoothstep(8.0, 25.0, dist);
   vDist = dist;
@@ -73,7 +73,7 @@ void main() {
   float r = dot(q, q);
   // streaky along the sheet (u runs along the wind)
   float n = vn(vec2(vUv.x * 2.5, vUv.y * 11.0)) * 0.6 + vn(vec2(vUv.x * 5.0, vUv.y * 27.0) + 3.1) * 0.4;
-  float a = exp(-r * 2.2) * smoothstep(0.35, 0.85, n) * vAlpha * 0.28;
+  float a = exp(-r * 2.2) * smoothstep(0.35, 0.85, n) * vAlpha * 0.16;
   // fine droplets scatter skylight and sun (forward-scattering, like mist)
   vec3 L = skyIrradiance() * (0.9 / 3.14159) + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0) * 0.35 + uFlash * 0.3;
   oColor = vec4(L * a, a);

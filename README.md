@@ -28,34 +28,50 @@ Bf 9: 9.2 m), and the GPU statistics are checked against the spectrum (`tools/hs
 
 **Light on water.** A slope-variance (LEAN) BRDF after Bruneton, Neyret and Holzschuch (2010)
 makes geometry, normals and BRDF hand over seamlessly. Sub-cascade roughness is the Cox–Munk
-remainder, so sun glitter breaks into sparkles up close and becomes a smooth path towards the
-horizon. Also modeled: averaged Fresnel, water-leaving radiance from ocean-optics remote-sensing
+remainder, and no pixel may hold more slope variance than the whole surface has. Sun glitter is
+carried by individual capillary facets: a pixel footprint holding N facets shows on average
+λ = E[L]·Ω☉ / (F·L☉)·N glints, sampled as a Poisson count, so the near field is discrete,
+full-brightness sparkles on dark water and the far field converges to the smooth glitter path. Also modeled: averaged Fresnel, water-leaving radiance from ocean-optics remote-sensing
 reflectance (deep ultramarine that turns grey-green as breaking waves fill the water with
 bubbles), backlit crest scattering, cloud shadows drifting over the sea, Earth curvature and
 aerial perspective.
 
-**Foam.** Whitecaps form where the surface Jacobian folds. The breaking threshold is expressed
-in standard deviations of the Jacobian and calibrated so coverage follows the Monahan &
-O'Muircheartaigh (1980) whitecap law (`tools/foam.mjs`). Foam decays into marbled lace, and at
-gale force it is drawn into streaks along the wind.
+**Foam.** Whitecaps form where the surface Jacobian folds. Two stages are tracked: active
+breaking (dense froth that lives about 0.4 s) and residual foam (seconds to tens of seconds).
+Both are drawn as the probability that a procedural bubble-raft pattern lies below the local
+foam density, so a whitecap is solid only at its core, its rim frays into filaments, and old foam
+opens up along the raft network into lace instead of shrinking as a blob. Crests break in
+segments of a few metres, and at gale force residual foam gathers into wind rows. The breaking
+threshold is expressed in standard deviations of the Jacobian and calibrated so coverage follows
+the Monahan & O'Muircheartaigh (1980) whitecap law within about 10% from 8 to 28 m/s
+(`tools/foam.mjs`).
 
 **Sky.** The atmosphere follows Hillaire (2020): transmittance, multiple-scattering, sky-view
 and aerial-perspective LUTs. Clouds are volumetric, built from procedural Perlin–Worley noise
 with Beer–powder lighting, Wrenninge multiple-scattering octaves and two-stream diffusion
-through thick storm decks. Light diffused through a deck takes the neutral-cool colour of
-sun plus skylight.
+through thick storm decks (a deck transmits E·μ₀·T/π). Faces turned to the camera reflect the
+sky and sea light behind it, so a storm's shadowed side is dark blue-grey, not black and not
+glowing. The marine aerosol has a realistic load (visibility around 100 km in clean air, a few
+tens of km in a storm), which gives the solar aureole, hazy golden horizons and distant clouds
+fading out.
 
 A squall line moves the weather across the sea along a meandering front. It is a row of
-cumulonimbus cells about 10 km tall whose anvil overhangs ahead of the line. A tiered shelf
+cumulonimbus cells about 10 km tall whose anvil overhangs ahead of the line; its face is
+displaced by kilometre-scale 3D noise that grows with height, so the towers bulge and recede.
+Haze standing in the storm's shadow scatters no direct sunlight, and neither do its rain
+curtains. A tiered shelf
 cloud rides the gust front, with scud racing beneath it. The rain curtains carry shafts and fade
 into the cloud base. Crepuscular rays are traced through the haze using the cloud-shadow map.
 Spindrift is torn off breaking crests at gale force, and spray haze hugs the sea.
 
 **Rain and storm.** Drop sizes follow Marshall–Palmer, with terminal velocities from Atlas et
 al. (1973). Streak photometry follows Garg & Nayar: a drop covers its streak only D/(v·T) of
-the exposure. Ring waves expand at the capillary minimum speed, and splash jets rise where drops
-land. Rain curtains have shafts, and visibility falls with rain rate. Lightning has multiple
-return strokes, a fractal branched channel and in-cloud illumination. It lights the scene with
+the exposure. Ring waves expand at the capillary minimum speed, every impact leaves a
+centimetre-wide crater that relaxes in about 60 ms (some 2,600 per square metre and second in
+the heaviest rain), and splashes are crowns a few millimetres tall that last about 50 ms; only
+the largest drops throw 2–4 cm Worthington jets. Rain curtains have shafts, and visibility falls with rain rate. Lightning has multiple
+return strokes, a tortuous fractal channel whose branches taper and dim, and in-cloud
+illumination. It lights the scene with
 I/d² (about 100 lux at 1 km) relative to sun- or moonlight, so a daytime strike barely brightens
 the sea, while at night it outshines the moon. The channel is hidden inside the cloud and dimmed
 by the rain between it and the viewer. Thunder arrives at 343 m/s and loses its high frequencies
@@ -70,8 +86,10 @@ scintillation near the horizon. They show only once the sky is dark enough. A sc
 **Camera and image.** The camera floats on the sea, heaving, pitching and rolling with waves
 longer than a small boat. Exposure meters the incident light, but meters the bright sky when
 shooting into a low sun, as a photographer would, and storms are exposed dark. White balance is
-fixed near daylight, so golden hour stays gold and storms stay steel-blue. AgX tone mapping is
-followed by a photographic S-curve, plus an energy-conserving bloom and film grain.
+near daylight, so golden hour stays gold; under a closed overcast it partly neutralises the
+cool light within a camera's AWB range. AgX tone mapping is followed by a photographic S-curve,
+plus a bloom with geometrically falling level weights (a tight lens core, a faint wide skirt)
+and film grain.
 
 **Sound.** Sea wash, whitecap hiss and gusting wind are synthesized from the same weather state.
 Rain and thunder are recordings. The film's soundtrack is rendered by the same engine in an
@@ -87,7 +105,7 @@ photography. The measurable parts are checked with tools:
 | --- | --- | --- |
 | Significant wave height, Bf 5 / 7 / 9 (`tools/hscheck.mjs`) | 2–2.5 / 4–5.5 / 7–10 m | 2.1 / 4.8 / 9.2 m |
 | GPU height variance vs. spectrum integral | equal | within sampling error (±10%) |
-| Whitecap coverage at 8.5 / 15 / 21 m/s (`tools/foam.mjs`) | ~1.5–2× Monahan (visible residual foam included) | 0.8 / 6.5 / 19.7 % |
+| Whitecap coverage at 8.5 / 15 / 21 / 28 m/s (`tools/foam.mjs`) | Monahan 0.57 / 3.9 / 12.4 / 33 % | 0.54 / 4.1 / 12.1 / 28.9 % |
 | Thunder delay | distance / 343 m/s | exact |
 | Visibility in the heaviest rain (Koschmieder, 3.9 / β) | ~2–3 km | 3.0 km |
 | Tonal range vs. reference photos (`tools/tonestats.mjs`) | p10 ≈ 5–45, highlights ≈ 230–255 | shadows deepened, highlights reach white |

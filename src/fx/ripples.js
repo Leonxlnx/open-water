@@ -27,9 +27,9 @@ vec2 rippleLayer(vec2 xz, float t, float cell, float life, float rain, float see
     float x = (r - R) / w;
     if (abs(x) > 3.0) continue;
     float lambda = 0.016 + 0.01 * tl;
-    float env = exp(-x * x) * exp(-tl * 4.0) * mix(0.6, 1.0, h2.x);
+    float env = exp(-x * x) * exp(-tl * 2.5) * mix(0.6, 1.0, h2.x);
     env *= (1.0 - smoothstep(0.9 * cell, 1.2 * cell, r)) * (1.0 - smoothstep(0.7 * period, period, tl));
-    float ds = env * cos(6.2831 * (r - R) / lambda) * (0.06 + 0.1 * h.y);
+    float ds = env * cos(6.2831 * (r - R) / lambda) * (0.22 + 0.16 * h.y);
     slope += ds * d / max(r, 1e-4);
   }
   return slope;
@@ -50,18 +50,22 @@ vec2 craterLayer(vec2 xz, float t, float cell, float life, float rain, float see
   float A = 1.1 * exp(-tl / 0.06);
   return A * 2.0 * d / sig * exp(-dot(d, d) / (sig * sig));
 }
-vec3 rainRipples(vec2 xz, float t, float rain, float dist) {
+// pix: pixel footprint (m). Rings (1.6-2.6 cm wavelength) and craters (~1 cm) are drawn only while
+// they are resolved; beyond that their energy is roughness (and the stipple in the water shader).
+vec3 rainRipples(vec2 xz, float t, float rain, float dist, float pix) {
   if (rain < 0.002) return vec3(0.0);
-  float near = 1.0 - smoothstep(6.0, 28.0, dist);
+  float near = 1.0 - smoothstep(0.005, 0.011, pix);
   vec2 s = vec2(0.0);
   if (near > 0.0) {
     float density = clamp(rain * 1.4, 0.0, 1.0);
     s += rippleLayer(xz, t, 0.21, 0.55, density, 0.0);
     s += rippleLayer(xz, t + 0.31, 0.17, 0.5, density * 0.9, 3.7);
     s += rippleLayer(xz, t + 0.73, 0.27, 0.65, density * 0.8, 9.1);
+    s += rippleLayer(xz, t + 0.17, 0.1, 0.45, density * 0.85, 13.3);
+    s += rippleLayer(xz, t + 0.49, 0.12, 0.5, density * 0.85, 17.9);
     s *= near;
     // ~2600 impacts per m2 and second at the heaviest rate; resolved only within a few metres
-    float cr = 1.0 - smoothstep(3.0, 8.0, dist);
+    float cr = 1.0 - smoothstep(0.003, 0.006, pix);
     if (cr > 0.0) {
       // two layers on rotated, differently sized grids: no visible lattice
       const mat2 R1 = mat2(0.934, 0.358, -0.358, 0.934), R2 = mat2(0.799, -0.602, 0.602, 0.799);

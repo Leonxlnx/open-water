@@ -162,7 +162,7 @@ void main() {
   }
 
   // rain ripples: normal perturbation near the camera, extra roughness further away
-  vec3 rr = rainRipples(vXZ, uTime, uRain, dist);
+  vec3 rr = rainRipples(vXZ, uTime, uRain, dist, sqrt(footA));
   s += rr.xy;
   // unresolved capillary roughness: sparkles near the camera, smooth BRDF lobe far away
   float unres = uUnresolved * 0.5 * mix(0.35, 1.0, smoothstep(4.0, 400.0, dist)) * sm * sm;
@@ -208,6 +208,23 @@ void main() {
   float envLod = clamp(max(log2(rough * 96.0), log2(dR * 256.0 / 3.14159) + 0.5), 0.0, 7.0);
   vec3 sky = envSample(R, envLod) * mix(1.0, 0.35, below);
   vec3 refl = F * sky;
+  // rain impact stipple where a single impact (crater + crown, ~2 cm2) is about pixel-sized: a
+  // Poisson count of impacts within the ~60 ms they stay visible; craters see the lower sky
+  // (darker), crowns catch the light (brighter)
+  if (uRain > 0.01) {
+    float pix = sqrt(footA);
+    float vis = smoothstep(0.003, 0.006, pix) * (1.0 - smoothstep(0.05, 0.12, pix));
+    if (vis > 0.0) {
+      float lamI = 2600.0 * uRain * footA * 0.06;
+      vec2 cell = floor(vXZ / pix);
+      float u1 = fract(sin(dot(vec3(cell, floor(uTime * 16.0)), vec3(12.9898, 78.233, 45.164))) * 43758.5453);
+      float u2 = fract(u1 * 91.73 + 0.37);
+      float pk = exp(-lamI), cdf = pk, k = 0.0;
+      for (int i = 0; i < 12; i++) { if (u1 <= cdf) break; k += 1.0; pk *= lamI / k; cdf += pk; }
+      float frac = min(2e-4 / footA, 1.0);
+      refl *= 1.0 + clamp((k - lamI) * frac, -0.6, 1.0) * (u2 < 0.4 ? 0.7 : -0.45) * vis;
+    }
+  }
 
   // sun glitter
   vec3 sun = uSunE * sunVis * reflectedSun(L, V, N, Tx, Ty, sigmaSq);
