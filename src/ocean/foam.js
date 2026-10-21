@@ -105,7 +105,7 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   T = mix(T, mix(T, s.b * 0.8 + big.g * 0.25, 0.45), uFoamStretch);
   vec2 dT = vec2(dFdx(T), dFdy(T));
   float fwT = abs(dT.x) + abs(dT.y);
-  vec2 pl = vec2(p.x / (1.0 + 3.0 * uFoamStretch), p.y) + (vec2(a.r, b.r) - 0.5) * 0.6;
+  vec2 pl = vec2(p.x / (1.0 + 9.0 * uFoamStretch), p.y) + (vec2(a.r, b.r) - 0.5) * 0.6;
   float va = texture(uFoamTex, pl / 4.2 + vec2(0.21, 0.83)).a;
   float vb = texture(uFoamTex, pl / 1.5 + vec2(0.57, 0.11)).a;
   float vein = va * 0.6 + vb * 0.4;
@@ -137,7 +137,12 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   // residual foam is a thinner bubble raft: translucent, the water shows through
   // ... and thins as it ages: old foam is a translucent film that takes the water's tint
   // (below a minimum density old foam is an invisible film: no isolated specks on pattern minima)
-  float covR = smoothstep(-edge, edge, mR) * mix(0.4, 0.85, smoothstep(0.15, 0.7, F)) * smoothstep(0.06, 0.2, Fs);
+  float eR = max(edge, 0.08);
+  float covR = smoothstep(-eR, eR, mR) * mix(0.45, 0.92, smoothstep(0.15, 0.7, F));
+  // thin old foam is a translucent film, not isolated specks on pattern minima
+  covR = mix(Fs * 0.15, covR, smoothstep(0.08, 0.25, Fs));
+  // where the raft network is unresolved, its mean coverage
+  covR = mix(covR, clamp(Fs * 0.45, 0.0, 1.0) * 0.85, smoothstep(0.12, 0.3, 0.85 * fwV + 0.3 * fwT));
   // far away the structure is sub-pixel: the expected coverage (energy conserving)
   covA = mix(covA, clamp(A * 0.95, 0.0, 1.0), far);
   covR = mix(covR, clamp(Fs * 0.7, 0.0, 1.0) * 0.85, far);
@@ -152,7 +157,7 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
     // a translucent bubble film, not opaque paint; once the lines are thinner than ~2.5 px they
     // fade to their mean coverage instead of breaking into hairline confetti
     float lcMean = lace * 0.22 * rafts;
-    lc = (1.0 - smoothstep(wid * 0.35, wid, vein)) * smoothstep(0.0, 0.08, lace) * rafts * 0.6;
+    lc = (1.0 - smoothstep(wid * 0.1, wid * 1.4, vein)) * smoothstep(0.0, 0.08, lace) * rafts * 0.35;
     lc = mix(lcMean, lc, smoothstep(1.5, 3.0, wid / max(fwV, 1e-4)) * (1.0 - far));
   }
   float bub = mix(a.g * 0.45 + b.g * 0.35 + big.r * 0.2, 0.8, far);

@@ -284,7 +284,7 @@ export class App {
       uUnresolved: stats.unresolved, uMssTotal: Math.max(stats.coxMunk, stats.resolvedMss + stats.unresolved), uHs: stats.hs,
       uRrs: mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], smoothstep(5, 24, S.wind)), [0.0016, 0.0028, 0.0026], smoothstep(0.1, 0.8, L.rain)), uSSS: [0.004, 0.05, 0.042],
       uGust: [0.35 + 0.45 * smoothstep(3, 9, S.wind) * (1 - smoothstep(16, 24, S.wind)), this.gustDrift[0], this.gustDrift[1]],
-      uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(14, 22, S.wind) * 0.45, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
+      uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(10, 19, S.wind) * 0.45, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
       // a visible ground strike: channel foot xz, cloud base, channel radiance (as drawn, through the rain)
       uBolt: this.lightning.ground && this.lightning.bolt > 0.01 && this.lightning.strike?.ground
         ? [this.lightning.ground[0], this.lightning.ground[1], this.lightning.ground[2], this.lightning.bolt * 2600 * (this.boltT ?? 1)] : [0, 0, 0, 0],
@@ -397,7 +397,8 @@ export class App {
     const px = new Float32Array(this.w * this.h * 4);
     gl.readPixels(0, 0, this.w, this.h, gl.RGBA, gl.FLOAT, px);
     let s = 0, raw = 0;
-    for (let i = 0; i < px.length; i += 4) { s += px[i]; raw += px[i + 1]; }
+    // whitecap coverage as photographs measure it: pixels where the foam is more than half opaque
+    for (let i = 0; i < px.length; i += 4) { s += px[i] > 0.5 ? 1 : 0; raw += px[i + 1]; }
     const n = px.length / 4;
     return { coverage: s / n, raw: raw / n };
   }

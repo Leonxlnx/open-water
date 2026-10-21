@@ -173,8 +173,10 @@ void main() {
     activeRaw = aT * 0.45 + textureGrad(uActive0, u0, dFdx(u0) * 1.2, dFdy(u0) * 1.2).r * 0.8;
     activeRaw *= mix(0.6, 1.35, crest) * mix(0.6, 1.4, face);
     // bubble plume: the same foam fields blurred over a few metres (bubbles spread and sink)
+    // (it follows recent breaking: mostly the active field, a little of the old foam)
     vec4 b1 = texture(uDisp[1], u1, 2.5);
-    plume = clamp(b1.w * mix(0.5, 1.3, crest), 0.0, 2.0);
+    float pa = textureLod(uActive, u1, 2.5).r;
+    plume = clamp((pa * 1.5 + b1.w * 0.15) * mix(0.5, 1.3, crest), 0.0, 2.0);
   }
 
   // rain ripples: normal perturbation near the camera, extra roughness further away
@@ -212,7 +214,7 @@ void main() {
   float dR = length(fwidth(R));
   vec3 Ed = uSunE * sunVis * max(L.y, 0.0) + uSkyE + uFlash * 0.3;
   // on a rough sea the facets we see lean toward us (Smith masking): the reflected rays rise
-  R.y += 1.5 * sigmaV * (1.0 - nv);
+  R.y += 0.75 * sigmaV * (1.0 - nv);
   // a ray reflected downwards hits the next wave: it sees that wave's water and, reflected once
   // more, the sky about two rms slopes up (not the brightest band at the horizon). The lobe has
   // an angular width ~2 sigma: blend by the fraction below the horizon (no per-pixel dashes).
@@ -305,7 +307,7 @@ void main() {
 
   // submerged bubbles backscatter strongly: the water around and beneath whitecaps turns pale aquamarine
   float pl = (1.0 - exp(-plume * uFoamAmount * 1.8)) * (1.0 - smoothstep(150.0, 900.0, dist) * 0.6);
-  body += (1.0 - F) * pl * vec3(0.07, 0.12, 0.10) * Ed / M_PI;
+  body += (1.0 - F) * pl * vec3(0.05, 0.09, 0.075) * Ed / M_PI;
   vec3 col = refl * uDbgMask.x + sun * uDbgMask.y + (body + sss) * uDbgMask.z;
   col += (1.0 - F) * uRain * 0.035 * smoothstep(3.0, 40.0, dist) * (uSkyE + uSunE * sunVis * max(L.y, 0.0)) / M_PI;
 
@@ -322,7 +324,7 @@ void main() {
     vec3 Ein = uSunE * sunVis * wrapL + uSkyE * (0.45 + 0.55 * Nf.y) + uFlash;
     // bubble foam scatters like a diffuse white layer (albedo ~0.6-0.85); only its thinnest
     // parts let a little of the blue-green water show through
-    float albedo = mix(0.45, 0.86, thick);
+    float albedo = mix(0.3, 0.86, thick);
     vec3 tint = mix(vec3(0.82, 0.93, 0.95), vec3(1.0), thick);
     vec3 foamCol = albedo * tint * Ein / M_PI;
     col = mix(col, foamCol, foam);
