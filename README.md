@@ -23,7 +23,8 @@ the cell still flickering on the horizon.
 ~300 m peak is carried by several modes and forms wave groups) and
 capillary-gravity dispersion. The wind sea uses the Elfouhaily et al. (1997) unified spectrum,
 whose short-wave regime is calibrated to Cox–Munk slope statistics. Spreading is Donelan–Banner
-near the peak and ECKV for short waves, plus a narrow-band swell. Choppy displacement gives
+near the peak and ECKV for short waves, blended toward a broad cos²ˢ spread as the wind
+approaches a gale (a confused, short-crested storm sea), plus a narrow-band swell. Choppy displacement gives
 trochoidal crests, steeper as the wind rises (young storm seas). Significant wave heights match the Beaufort table (Bf 5: 2.1 m, Bf 7: 4.8 m,
 Bf 9: 9.2 m), and the GPU statistics are checked against the spectrum (`tools/hscheck.mjs`).
 
@@ -52,7 +53,7 @@ meandering wind rows tens of metres long. Fresh caps have an opaque white core; 
 translucent layer over the water, never darker than it. The breaking
 threshold is expressed in standard deviations of the Jacobian and calibrated so coverage follows
 the Monahan & O'Muircheartaigh (1980) whitecap law within about 15% from 8 to 21 m/s, with active
-breaking about a quarter to a third of it in strong wind
+breaking about 35-50% of it
 (`tools/foam.mjs`).
 
 **Sky.** The atmosphere follows Hillaire (2020): transmittance, multiple-scattering, sky-view
@@ -120,7 +121,7 @@ photography. The measurable parts are checked with tools:
 | --- | --- | --- |
 | Significant wave height, Bf 5 / 7 / 9 (`tools/hscheck.mjs`) | 2–2.5 / 4–5.5 / 7–10 m | 2.1 / 4.8 / 9.2 m |
 | GPU height variance vs. spectrum integral | equal | within sampling error (±10%) |
-| Whitecap coverage at 8.5 / 11 / 15 / 21 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 1.37 / 3.9 / 12.4 % | 0.53 / 1.19 / 4.3 / 14.1 % (pixels with foam over half opaque); actively breaking 0.34 / 0.48 / 1.2 / 3.7 % |
+| Whitecap coverage at 8.5 / 11 / 15 / 21 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 1.37 / 3.9 / 12.4 % | 0.48 / 1.36 / 3.4 / 12.4 % (pixels with foam over half opaque); actively breaking 0.24 / 0.47 / 1.4 / 5.2 % |
 | Thunder delay | distance / 343 m/s | exact |
 | Visibility in the heaviest rain (Koschmieder, 3.9 / β) | ~2–3 km | 3.0 km |
 | Tonal range vs. reference photos (`tools/tonestats.mjs`) | p10 ≈ 5–45, highlights ≈ 230–255 | shadows deepened, highlights reach white |

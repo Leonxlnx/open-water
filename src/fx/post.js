@@ -23,7 +23,7 @@ void main() {
   if (uFirst > 0.5) {
     // Karis average on the first mip to suppress fireflies from glints
     vec3 g0 = (a + b + d + e) * 0.25, g1 = (b + c + e + f) * 0.25, g2 = (d + e + g + h) * 0.25, g3 = (e + f + h + i) * 0.25, g4 = (j + k + l + m) * 0.25;
-    float w0 = 1.0 / (1.0 + lum(g0) * 0.02), w1 = 1.0 / (1.0 + lum(g1) * 0.02), w2 = 1.0 / (1.0 + lum(g2) * 0.02), w3 = 1.0 / (1.0 + lum(g3) * 0.02), w4 = 1.0 / (1.0 + lum(g4) * 0.02);
+    float w0 = 1.0 / (1.0 + lum(g0) * 0.25), w1 = 1.0 / (1.0 + lum(g1) * 0.25), w2 = 1.0 / (1.0 + lum(g2) * 0.25), w3 = 1.0 / (1.0 + lum(g3) * 0.25), w4 = 1.0 / (1.0 + lum(g4) * 0.25);
     col = (g0 * w0 * 0.125 + g1 * w1 * 0.125 + g2 * w2 * 0.125 + g3 * w3 * 0.125 + g4 * w4 * 0.5) /
           (w0 * 0.125 + w1 * 0.125 + w2 * 0.125 + w3 * 0.125 + w4 * 0.5);
   } else {

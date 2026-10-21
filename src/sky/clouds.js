@@ -127,20 +127,21 @@ float maxCoverage() { return uFront.w > 0.0 ? max(uCoverage, uStormA.x) : uCover
 // h: sample height. High up, the storm's anvil spreads ahead of the line (~3.5 km).
 vec4 regime(vec2 xz, float h, out float base, out float top) {
   float anvil = smoothstep(uStormTop * 0.62, uStormTop * 0.86, h) * 3500.0;
-  float m = 0.0;
+  float m = 0.0, tv = 1.0;
   if (uFront.w > 0.0) {
     // the storm's face bulges forward and recedes by kilometres: convective towers, not a wall
     vec3 bp = vec3(xz.x + uWindOffset.x, h * 1.3, xz.y + uWindOffset.z) / 8500.0 + 0.77;
     vec4 bn = textureLod(uShape, bp, 2.0);
     vec4 bf = textureLod(uShape, bp * 3.1 + 0.29, 2.0);
-    float bulge = ((bn.r * 0.7 + bn.g * 0.3 - 0.5) * 3500.0 + (bf.r - 0.5) * 900.0) * smoothstep(300.0, 2500.0, h);
+    float bulge = ((bn.r * 0.7 + bn.g * 0.3 - 0.5) * 5500.0 + (bf.r - 0.5) * 1400.0) * smoothstep(300.0, 2500.0, h);
+    tv = 0.7 + 0.3 * bn.g;
     m = smoothstep(-uFront.w, uFront.w, frontDist(xz) + anvil + bulge);
   }
   base = mix(uBase, uStormA.w, m);
-  top = mix(uTop, uStormTop, m);
+  top = mix(uTop, uStormTop * tv, m);
   // the storm's coverage closes over the outer half of the ramp: its face has no see-through gaps
   // (and darkens just as fast: the storm's leading towers are part of one dark mass, not fair-weather cumulus)
-  return vec4(mix(uCoverage, uStormA.x, smoothstep(0.0, 0.35, m)), mix(uDark, uStormA.y, smoothstep(0.0, 0.5, m)), mix(uDensity, uStormA.z, m), m);
+  return vec4(mix(uCoverage, uStormA.x, smoothstep(0.0, 0.35, m)), mix(uDark, uStormA.y, smoothstep(0.0, 0.2, m)), mix(uDensity, uStormA.z, m), m);
 }
 
 // Shelf cloud (arcus): a low wedge along the gust front ahead of the rain. Its nose hangs lowest
@@ -149,7 +150,7 @@ float shelfDensity(vec3 p, float h) {
   if (uFront.w <= 0.0 || uStormA.y < 0.5) return 0.0;
   float d = frontDist(p.xz);
   // the face leans back with height (~25 deg)
-  float dl = d + (h - 260.0) * 2.2;
+  float dl = d - (h - 260.0) * 2.2;
   if (dl < -3400.0 || d > 1600.0) return 0.0;
   float u = clamp((dl + 3400.0) / 5000.0, 0.0, 1.0);
   vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / vec3(2400.0, 700.0, 2400.0);
@@ -163,7 +164,8 @@ float shelfDensity(vec3 p, float h) {
   vec4 n2 = textureLod(uShape, (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / vec3(700.0, 300.0, 700.0) + 0.31, lodFor(700.0 / 128.0));
   // laminar rolls parallel to the gust front, varying along it
   float along = dot(p.xz, vec2(-uFront.y, uFront.x));
-  float tiers = mix(0.45, 1.0, smoothstep(0.3, 0.7, 0.5 + 0.5 * sin(h * 0.042 + n.g * 5.0 + along / 900.0)));
+  float tiers = mix(0.45, 1.0, smoothstep(0.3, 0.7, 0.5 + 0.5 * sin(h * 0.042 + n.g * 0.8 + along / 900.0)));
+  tiers = mix(1.0, tiers, smoothstep(0.2, 0.35, tz));
   tiers *= smoothstep(0.2, 0.55, n.r * 0.55 + n2.r * 0.55);
   float nose = smoothstep(0.0, 0.05 + 0.08 * n.r, u);
   float body = smoothstep(0.0, 0.1, tz) * (1.0 - smoothstep(0.75, 1.0, tz));
@@ -299,7 +301,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
     if (ht.x < 0.0) return vec4(0.0, 0.0, 0.0, 1.0);
     t0 = ht.x; t1 = hb.x > 0.0 ? hb.x : ht.y;
   }
-  t1 = min(t1, t0 + 120000.0);
+  t1 = min(t1, t0 + (uFront.w > 0.0 ? 120000.0 : 60000.0));
   if (t1 <= t0) return vec4(0.0, 0.0, 0.0, 1.0);
   // adaptive stepping: coarse probes in empty space, fine steps inside clouds.
   // Fine step grows with distance (pixel footprint) to bound the cost near the horizon.
@@ -311,13 +313,13 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
   float wsum = 0.0;
   float cosT = dot(rd, uSunDir);
   // multiple-scattering octaves (Wrenninge 2013): energy a^i, extinction b^i, eccentricity c^i
-  float ph0 = mix(hg(cosT, 0.82), hg(cosT, -0.3), 0.3);
-  float ph1 = mix(hg(cosT, 0.41), hg(cosT, -0.15), 0.3);
-  float ph2 = mix(hg(cosT, 0.2), hg(cosT, -0.07), 0.3);
-  float ph3 = mix(hg(cosT, 0.1), hg(cosT, -0.035), 0.3);
+  float ph0 = mix(hg(cosT, 0.82), hg(cosT, -0.3), 0.4);
+  float ph1 = mix(hg(cosT, 0.41), hg(cosT, -0.15), 0.5);
+  float ph2 = mix(hg(cosT, 0.2), hg(cosT, -0.07), 0.5);
+  float ph3 = mix(hg(cosT, 0.1), hg(cosT, -0.035), 0.5);
   bool inside = false;
   bool allowBack = true;
-  float tEnter = 0.0;
+  float tEnter = 0.0, tDone = t0;
   int miss = 0;
   // (budget: a ray may cross a few near cumulus and still has to reach a storm 20+ km away)
   for (int i = 0; i < 320; i++) {
@@ -332,13 +334,13 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       float stride = clamp(t * 0.02, coarse, max(coarse, 600.0));
       if (cloudDensityR(p, h, false, R, base, top) > 0.0) {
         inside = true; miss = 0;
-        if (allowBack) { tEnter = t; t = max(t - stride, t0); allowBack = false; continue; }
+        if (allowBack) { tEnter = t; t = max(t - stride, max(t0, tDone)); allowBack = false; continue; }
       } else { t += stride; continue; }
     }
     // distance LOD: erosion detail and long light paths are sub-pixel far away
     bool nearField = t * uPixelAngle < 25.0;
     float sigma = cloudDensityR(p, h, nearField, R, base, top);
-    float stepLen = max(fine, max(t - 15000.0, 0.0) * 0.005 * (64.0 / float(steps))) * (1.0 + t * 0.00004);
+    float stepLen = max(fine, min(max(t - 15000.0, 0.0) * 0.005, 150.0) * (64.0 / float(steps))) * (1.0 + t * 0.00004);
     if (sigma > 0.0) {
       miss = 0;
       float hf = clamp((h - base) / (top - base), 0.0, 1.0);
@@ -369,7 +371,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       }
       // scud sits under the deck: sunlight must cross the whole layer above it
       if (h < base) tau += R.z * (top - base) * 0.25 / max(uSunDir.y, 0.1);
-      float msK = 1.0 - exp(-(tau + sigma * 150.0));
+      float msK = 1.0 - exp(-(tau + sigma * 30.0));
       float ms = ph0 * exp(-tau) + msK * (0.7 * ph1 * exp(-0.5 * tau) + 0.49 * ph2 * exp(-0.25 * tau) + 0.343 * ph3 * exp(-0.125 * tau));
       // powder: in-scattering probability is low at cloud edges facing the light
       float powder = 1.0 - exp(-2.0 * tau - sigma * 80.0);
@@ -399,11 +401,11 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // (a deck is a slab lit from above: E mu0 T_d / pi; an isolated cumulus is lit on its sunward side)
       float slab = smoothstep(0.75, 0.95, R.x);
       // isolated cumulus: bright when seen from the sunlit side, dark bodies with bright rims backlit
-      float diffuse = diffSun * mix(mix(0.12, 0.3, 1.0 - smoothstep(-0.6, 0.3, cosT)), max(uSunDir.y, 0.0) / 3.14159, slab) * (1.0 - exp(-0.15 * tau));
+      float diffuse = diffSun * mix(mix(0.12, 0.5, 1.0 - smoothstep(-0.6, 0.3, cosT)), max(uSunDir.y, 0.0) / 3.14159, slab) * (1.0 - exp(-0.15 * tau));
       // the diffused light carries the colour of the whole illumination at the cloud top: sun + skylight
       // diffused deck light mixes sun and blue skylight: neutral-cool (~6500 K) at the sun's luminance
       vec3 diffCol = dot(sunE, vec3(0.2126, 0.7152, 0.0722)) * vec3(0.93, 1.0, 1.09);
-      vec3 sun = sunE * ms * mix(1.0, powder, 0.45 * (1.0 - max(cosT, 0.0))) + diffCol * diffuse;
+      vec3 sun = sunE * ms * mix(1.0, powder, 0.25 * (1.0 - max(cosT, 0.0))) + diffCol * diffuse;
       vec3 amb = ambTop * diffUp * mix(0.6, 1.0, hf) + ambBot * (1.0 - hf) * diffUp * 0.6;
       // the face toward the camera reflects the sky/sea light behind the camera where the column
       // above no longer lets skylight through
@@ -422,7 +424,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       meanDist += t * T * (1.0 - a);
       T *= a;
     } else if (t > tEnter && ++miss > 5) {
-      inside = false; allowBack = true;
+      inside = false; allowBack = true; tDone = t;
     }
     t += stepLen;
   }

@@ -472,18 +472,19 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     // (inside the storm: the shafts around the camera)
     vec2 xc = uFogCam + dir.xz * (tc > 0.0 ? tc : min(L, 2500.0));
     float along = dot(xc, vec2(-n.y, n.x));
-    float shafts = 0.05 + 2.6 * pow(fogNoise(along / 1700.0), 2.0) * (0.6 + 0.4 * fogNoise(along / 430.0 + 7.0));
-    // under the downpour itself there are no gaps around the viewer: the veil hides the cloud base
-    shafts = max(shafts, 0.85 * smoothstep(-w, w, s0));
+    float shafts = 0.02 + 3.0 * pow(fogNoise(along / 1700.0), 3.0) * (0.6 + 0.4 * fogNoise(along / 430.0 + 7.0));
+    // under the downpour the veil closes round the viewer, densest low down; the base shows above
+    shafts = max(shafts, smoothstep(-w, w, s0) * (0.35 + 0.6 * fogNoise(along / 700.0 + 2.0)) * (1.0 - 0.6 * smoothstep(0.15, 0.5, dir.y)));
     // curtains fade out into the cloud base instead of ending at a ruler-straight line
     float hcr = max(dir.y * max(tc, 0.0), 0.0);
-    float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.35 * uFogTop, uFogTop, hcr));
+    float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.25 * uFogTop, uFogTop * (0.8 + 0.4 * fogNoise(along / 900.0)), hcr));
+    st = min(st, 3.0 * shafts + 0.1);
     tau += st;
     stormFrac = st / max(tau, 1e-6);
     // fine vertical streaks of falling rain, slanted by the wind, where the ray meets the curtain
     float hc = max(dir.y * max(tc, 0.0), 0.0);
     // fine streaks only up close; far curtains read as soft shafts (the fine detail is sub-pixel there)
-    float near = 1.0 - smoothstep(3000.0, 12000.0, max(tc, 0.0));
+    float near = 1.0 - smoothstep(1500.0, 5000.0, max(tc, 0.0));
     // domain-warped, multi-octave: no evenly spaced stripes
     float a2 = along / 1700.0 + 0.6 * fogNoise(along / 600.0);
     float streak = (fogNoise(a2 * 1.9 + hc / 1400.0) * 0.5 + fogNoise(a2 * 4.1 + hc / 900.0 + 3.3) * 0.3 + fogNoise(a2 * 8.7 + 5.1) * 0.2) * 0.6 + near * (fogNoise(along / 260.0 + hc / 500.0 + 3.0) * 0.28 + fogNoise(along / 85.0 + hc / 180.0 + 9.0) * 0.12) + (1.0 - near) * 0.2;

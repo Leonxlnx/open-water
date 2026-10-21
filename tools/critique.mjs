@@ -61,4 +61,6 @@ for (const s of SCENES) {
   try { data = await renderScene(s); } catch (e) { console.log(`retry ${s.name}: ${e.message}`); data = await renderScene(s); }
   await writeFile(`${outDir}/${s.name}.png`, Buffer.from(data.split(',')[1], 'base64'));
   console.log(s.name);
+  // a pause between scenes: the GPU is shared and heavy back-to-back frames have reset its driver
+  await new Promise((r) => setTimeout(r, 15000));
 }

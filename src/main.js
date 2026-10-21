@@ -231,11 +231,11 @@ export class App {
     const fogU = {
       uFogDensity: fogDensity, uFogTop: fOn ? (S.cloudBase + S.sBase) * 0.5 + 100 : S.cloudBase + 100,
       uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0],
-      uFogStorm: [stormFog, (night ? 0.65 : 0.5) + (1 - (night ? 0.65 : 0.5)) * mCam, (fogDensity + mCam * Math.max(stormFog - fogDensity, 0)) * (fOn ? (S.cloudBase + S.sBase) * 0.5 + 100 : S.cloudBase + 100)],
+      uFogStorm: [stormFog, (night ? 0.65 : 0.3) + (0.6 - (night ? 0.65 : 0.3)) * mCam, (fogDensity + mCam * Math.max(stormFog - fogDensity, 0)) * (fOn ? (S.cloudBase + S.sBase) * 0.5 + 100 : S.cloudBase + 100)],
       uFogCam: [this.cam.pos[0], this.cam.pos[2]],
       uFlashFog: flashRGB.map((x) => x * 0.25), uFlashDir: flashDir,
       // spray haze from breaking crests: grows from a near gale (~14 m/s) upwards
-      uSprayHaze: [smoothstep(17, 28, S.wind) * 1.2e-3, Math.max(this.cam.pos[1], 0.5)],
+      uSprayHaze: [smoothstep(12, 26, S.wind) * 1.2e-3, Math.max(this.cam.pos[1], 0.5)],
     };
 
     // clouds advect with the wind aloft (~1.6x surface wind), detail evolves slowly
@@ -274,7 +274,7 @@ export class App {
       uShaft: [this.atmo.uniforms.uMie[0] * 1e-3, Math.min(S.cloudBase, fOn ? S.sBase : 1e9), S.clouds > 0.05 ? 1.0 : 0.0, (this.time * 0.618) % 1],
     });
     // water-leaving reflectance: deep blue, greyer with bubbles in a high wind, grey-green in rain
-    const rrs = mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], 0.6 * smoothstep(12, 28, S.wind)), [0.0016, 0.0022, 0.0022], smoothstep(0.1, 0.8, L.rain));
+    const rrs = mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], 0.8 * smoothstep(5, 24, S.wind)), [0.0013, 0.0024, 0.0025], smoothstep(0.1, 0.8, L.rain));
     this.sky.renderEnv({ ...skyU, ...fogU, uCloudsEnv: this.clouds.env, uCloudsOn: 1, uSunVis: 1, uEnvRrs: rrs });
 
     // main HDR pass
@@ -341,11 +341,11 @@ export class App {
     // how much of the frame a storm fills (overhead, or a squall line in view)
     const stormView = Math.max(smoothstep(0.7, 0.9, L.clouds), fOn ? smoothstep(15000, 3000, S.frontDist) : 0);
     this.post.run(this.hdr, dt, {
-      time: t, bloom: 0.015 + 0.015 * backlit + 0.02 * (night ? 1 : 0), // a camera's matrix meter lifts a frame dominated by a dark sea under a high sun
-      exposureBias: Number(params.get('ev') || 0) - 0.6 * backlit - 1.0 * L.dark * L.dark * (0.4 + 0.6 * L.rain) + 0.4 * (1 - smoothstep(0.2, 0.4, L.clouds)) * smoothstep(35, 50, W.time.sunElev),
+      time: t, bloom: 0.012 + 0.006 * backlit + 0.01 * (night ? 1 : 0), // a camera's matrix meter lifts a frame dominated by a dark sea under a high sun
+      exposureBias: Number(params.get('ev') || 0) - 0.9 * backlit - 1.0 * L.dark * L.dark * (0.4 + 0.6 * L.rain) + 0.4 * (1 - smoothstep(0.2, 0.4, L.clouds)) * smoothstep(35, 50, W.time.sunElev),
       skyU, cloudShadow: this.clouds.shadow, incident: 0.65 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : (0.1 * smoothstep(0.25, 0.6, L.clouds) + 0.35 * smoothstep(0.8, 0.95, L.clouds)) * (1 - backlit) * (night ? 0 : 1), night: night ? 1 : 0,
       look: params.has('look') ? params.get('look').split(',').map(Number) : night ? [1.35, 0.4, 1.0, 0.004] : mixv([1.5, 0.4, 1.0, 0.004], [1.6, 0.36, 0.95, 0.03], stormView),
-      look2: night ? [1.5, 1.0] : [1.8 - 0.3 * stormView, (1.15 + 0.1 * backlit) * (1 - stormView) + stormView],
+      look2: night ? [1.5, 1.0] : [1.8 - 0.3 * stormView, 1.03 + 0.05 * backlit * (1 - stormView)],
     });
     P.end();
     this.stats = stats;

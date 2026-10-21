@@ -108,7 +108,7 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   float fwT = abs(dT.x) + abs(dT.y);
   // footprint of a pixel in metres (geometric mean of the axes: what anisotropic filtering resolves)
   float fpm = sqrt(length(dpx) * length(dpy));
-  vec2 pl = vec2(p.x / (1.0 + 3.0 * uFoamStretch), p.y) + (vec2(a.r, b.r) - 0.5) * 0.6;
+  vec2 pl = vec2(p.x / (1.0 + 9.0 * uFoamStretch), p.y) + (vec2(a.r, b.r) - 0.5) * 0.6;
   float va = texture(uFoamTex, pl / 4.2 + vec2(0.21, 0.83)).a;
   float vb = texture(uFoamTex, pl / 1.5 + vec2(0.57, 0.11)).a;
   float vein = va * 0.6 + vb * 0.4 * (1.0 - smoothstep(0.08, 0.3, fpm)) + 0.2 * smoothstep(0.08, 0.3, fpm);
@@ -116,36 +116,36 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   if (f < 0.003 && lace < 0.003 && act < 0.003) return vec2(0.0);
   // densities in [0, 1): residual (stage B, seconds to tens of seconds) and active breaking (stage A)
   float F = 1.0 - exp(-f * 1.3);
-  float A = min((1.0 - exp(-act * 0.8)) * mix(0.5, 1.0, smoothstep(0.25, 0.6, seg)) * 1.2, 1.0);
+  float A = min((1.0 - exp(-act * 2.0)) * mix(0.5, 1.0, smoothstep(0.25, 0.6, seg)) * 1.2, 1.0);
   // coverage = P(pattern < density): foam fills the low values of a pattern field first.
   //  Pa, active froth: metre-scale churn plus the raft network, so the rim of a breaking crest
   //      frays into filaments and specks, and only the core is solid (with holes)
   //  Pr, residual foam: the raft network dominates, so decaying foam opens up into lace and marbling
   // (cap cores are solid; only the rims fray along the raft network)
-  float Pa = clamp(T * 0.8 + vein * 0.35 * (1.0 - smoothstep(0.5, 0.9, A)) - 0.12 + (b.r - 0.5) * 0.25, 0.0, 1.0);
+  float Pa = clamp(T * 0.8 + vein * 0.35 * (1.0 - smoothstep(0.5, 0.9, A)) - 0.12, 0.0, 1.0);
   float Pr = clamp(vein * 0.85 + T * 0.3 - 0.1, 0.0, 1.0);
   float far = smoothstep(0.4, 1.6, fpm);
   // crisp froth edges near, softening only as the structure becomes sub-pixel
-  float edge = 0.035 + fwT * 0.6 + fwV * 0.4 + far * 0.2 + 0.2 * smoothstep(0.02, 0.2, fpm);
+  float edge = 0.035 + fwT * 0.6 + fwV * 0.4 + far * 0.2;
   // residual foam gathers into wind rows (streaks along the wind) as the gale strengthens
   // (ragged edges: the metre-scale structure frays the rows)
   float wrr = wr + (a.r - 0.5) * 0.22 + (b.r - 0.5) * 0.12;
-  float Fs = F * mix(1.0, 0.5 + 1.0 * pow(smoothstep(0.2, 0.8, wrr), 2.0), uFoamStretch);
+  float Fs = F * mix(1.0, 0.25 + 1.6 * pow(smoothstep(0.2, 0.7, wrr), 2.0), uFoamStretch);
   // a bubble raft never fills its cells: the centres stay open, so old foam stays a network
   // (very dense old foam, as in a gale, does fill most of its cells)
   float mA = A * 1.08 - Pa, mR = Fs * mix(0.62, 0.9, smoothstep(0.5, 0.95, F)) - Pr;
-  float covA = smoothstep(-edge, edge, mA) * smoothstep(0.04, 0.15, A);
+  float covA = smoothstep(-edge, edge, mA) * smoothstep(0.08, 0.22, A);
   // residual foam is a thinner bubble raft: translucent, the water shows through
   // ... and thins as it ages: old foam is a translucent film that takes the water's tint
   // (below a minimum density old foam is an invisible film: no isolated specks on pattern minima)
   float eR = max(edge, 0.08);
   float covR = smoothstep(-eR, eR, mR) * mix(0.45, 0.92, smoothstep(0.15, 0.7, F));
-  covR *= smoothstep(0.08, 0.25, Fs);
+  covR *= smoothstep(0.15, 0.35, Fs);
   // where the raft network is unresolved, its mean coverage
-  covR = mix(covR, clamp(Fs * 0.25, 0.0, 1.0) * 0.85 * smoothstep(0.08, 0.25, Fs), smoothstep(0.12, 0.3, 0.85 * fwV + 0.3 * fwT));
+  covR = mix(covR, clamp(Fs * 0.25, 0.0, 1.0) * 0.85 * smoothstep(0.15, 0.35, Fs), smoothstep(0.12, 0.3, 0.85 * fwV + 0.3 * fwT));
   // far away the structure is sub-pixel: the expected coverage (energy conserving)
   covA = mix(covA, clamp(A * 0.95, 0.0, 1.0), far);
-  covR = mix(covR, clamp(Fs * 0.4, 0.0, 1.0) * 0.85 * smoothstep(0.08, 0.25, Fs), far);
+  covR = mix(covR, clamp(Fs * 0.4, 0.0, 1.0) * 0.85 * smoothstep(0.15, 0.35, Fs), far);
   float cov = max(covA, covR);
   foamCovA = covA;
   // residual lace: thin vein lines, stretched along the wind, thicker as the gale strengthens
@@ -165,7 +165,7 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   // optical thickness: dense where the foam far exceeds its threshold, thin near its edges
   float thick = mix(max(smoothstep(0.0, 0.3, mA), smoothstep(0.0, 0.3, mR) * 0.6), clamp(max(A, Fs * 0.45) * 1.3, 0.0, 1.0), far) * bub;
   // churned texture inside dense whitecaps: brightness varies with bubble size, coverage stays solid
-  thick *= mix(0.8 + 0.2 * smoothstep(0.2, 0.8, b.g * 0.6 + a.g * 0.4), 1.0, far);
+  thick *= mix(0.6 + 0.4 * smoothstep(0.2, 0.8, b.g * 0.6 + a.g * 0.4), 1.0, far);
   // relief of the bubble mass: world-space slope of the structure field (treated as ~15 cm of height),
   // recovered from screen derivatives, for side-lit shading of the foam
   mat2 Mj = mat2(dpx.x, dpy.x, dpx.y, dpy.y);
@@ -176,8 +176,8 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   // caps fade as they age downwind; lace is a thin translucent bubble film
   thick *= mix(0.85, 1.0, A / (A + F + 1e-3));
   // fresh caps have an opaque white core; dense old foam stays a solid raft
-  thick = max(thick, covA * smoothstep(0.2, 0.55, A) * 0.92);
-  thick = max(thick, smoothstep(0.4, 0.85, Fs) * smoothstep(0.0, 0.2, mR) * 0.7);
+  thick = max(thick, covA * smoothstep(0.25, 0.6, A) * mix(0.7, 0.92, b.g));
+  thick = max(thick, smoothstep(0.4, 0.85, Fs) * smoothstep(0.0, 0.2, mR) * 0.5);
   thick = max(thick, lc * 0.5);
   return vec2(max(cov, lc), thick);
 }

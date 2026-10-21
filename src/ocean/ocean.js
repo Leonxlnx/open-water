@@ -31,6 +31,7 @@ uniform vec2 uBand;        // kmin, kmax for this cascade
 uniform vec4 uWind;        // U10 (m/s), fetch (m), direction (rad), amplitude scale
 uniform vec4 uSwell;       // Hs (m), peak period (s), direction (rad), spread exponent s
 uniform float uShortCut;   // damping length for very short waves
+uniform float uSpreadBlend; // a confused storm sea: broad cos^2s spreading blended in
 out vec4 o;
 
 // Elfouhaily, Chapron, Katsaros & Vandemark (1997) unified spectrum: JONSWAP-like long waves
@@ -102,6 +103,7 @@ float spectrum(vec2 k) {
   float eckv = (1.0 + delta * cos(2.0 * tw)) / (2.0 * PI) * (abs(tw) < 0.5 * PI ? 1.0 : eps) * 2.0 / (1.0 + eps);
   float db = donelanBanner(tw, sqrt(kl / kp));
   float D = mix(db, eckv, smoothstep(1.4, 3.5, kl / kp));
+  D = mix(D, cos2s(tw, 2.0), uSpreadBlend);
   float Psi = S / kl * D;
   if (uSwell.x > 0.0) {
     float w = omegaOf(kl);
@@ -308,7 +310,7 @@ export class Ocean {
         uBand: [c.kmin, c.kmax],
         uWind: [p.wind, p.fetch, p.dir, p.scale],
         uSwell: [p.swellHs, p.swellT, p.swellDir, p.swellSpread],
-        uShortCut: 0.004,
+        uShortCut: 0.004, uSpreadBlend: p.spreadBlend ?? 0,
       }, c.h0Target);
     }
     this.stats = computeStats(p, this.cascades);

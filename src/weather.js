@@ -87,7 +87,7 @@ export class Weather {
       swellT: r(s.swellT),
       swellDir: r((s.swellDir * Math.PI) / 180),
       swellSpread: r(s.swellSpread),
-      spreadBlend: r(smoothstep(14, 26, s.wind) * 0.35),
+      spreadBlend: r(smoothstep(14, 26, s.wind) * 0.5),
     };
   }
 
@@ -98,11 +98,11 @@ export class Weather {
     const U = this.state.wind;
     // z: breaking threshold in standard deviations of the Jacobian. Calibrated so visible coverage
     // follows Monahan & O'Muircheartaigh (1980), stage A + B, within ~10% from 8 to 28 m/s.
-    const z = table(U, [3, 5, 8.5, 11, 15, 21, 28], [3.2, 2.6, 2.11, 1.94, 1.665, 1.19, 0.5]);
+    const z = table(U, [3, 5, 8.5, 11, 15, 21, 28], [3.2, 2.65, 2.18, 1.98, 1.75, 1.3, 0.6]);
     const gain = 1.2;
     // residual foam lingers longer in strong wind (e-folding ~7 s at 14 m/s, ~20 s in a gale):
     // drifting at ~0.035 U it draws streaks 10-15 m long
-    const decay = table(U, [5, 8.5, 14, 18, 24], [0.3, 0.12, 0.075, 0.08, 0.13]);
+    const decay = table(U, [5, 8.5, 14, 18, 24], [0.3, 0.12, 0.075, 0.06, 0.055]);
     return [z, gain, decay];
   }
 }
