@@ -59,7 +59,7 @@ void main() {
   vec3 P = pos + along * c.x * size * mix(2.4, 8.0, smoothstep(20.0, 150.0, dist)) * mix(0.35, 1.0, smoothstep(0.2, 0.6, al)) + up * c.y * size * 0.7;
   vAlong = smoothstep(0.2, 0.6, al);
   vUv = c + 0.5;
-  vAlpha = alive * sin(3.14159 * age) * (1.0 - smoothstep(uRadius * 0.6, uRadius, dist)) * smoothstep(8.0, 25.0, dist);
+  vAlpha = alive * sin(3.14159 * age) * (1.0 - smoothstep(uRadius * 0.6, uRadius, dist)) * smoothstep(15.0, 40.0, dist);
   vDist = dist;
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
@@ -83,7 +83,9 @@ void main() {
   float n = vn(vUv * sc) * 0.6 + vn(vUv * sc * 2.2 + 3.1) * 0.4;
   float a = exp(-r * 2.2) * smoothstep(0.35, 0.85, n) * vAlpha * 0.45;
   // fine droplets scatter skylight and sun (forward-scattering, like mist)
-  vec3 L = skyIrradiance() * (0.9 / 3.14159) + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0) * 0.35 + uFlash * 0.3;
+  // fine droplets scatter all wavelengths alike: the grey of the light around them
+  vec3 Lc = skyIrradiance() * (0.9 / 3.14159) + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0) * 0.35 + uFlash * 0.3;
+  vec3 L = vec3(dot(Lc, vec3(0.2126, 0.7152, 0.0722)));
   oColor = vec4(L * a, a);
 }`;
 

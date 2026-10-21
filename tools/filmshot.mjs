@@ -11,6 +11,11 @@ try {
     const page = await openApp(browser, `http://localhost:5173/?render&q=${q}&scale=1&${extra}`, { width, height });
     const data = await page.evaluate((T) => {
       const dt = 1 / 30;
+      // the sea under the frame's weather first: in the film, foam has built up since the act began
+      const tw = Math.max(T - 3, 0), W = Math.min(T < 17 ? T : T < 48 ? T - 17 : T - 48, 25);
+      app.filmFrame(tw, dt);
+      app.time = tw - W;
+      app.warmSea(W);
       for (let t = Math.max(T - 3, -2); t < T - dt / 2; t += dt) app.filmFrame(t, dt);
       const t0 = performance.now();
       app.filmFrame(T, dt);

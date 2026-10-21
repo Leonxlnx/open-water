@@ -49,6 +49,7 @@ uniform vec3 uCamPos;
 uniform sampler2D uDisp[3];
 uniform sampler2D uSlope[4];
 uniform sampler2D uActive;      // active breaking of the main whitecap cascade (117 m)
+uniform sampler2D uActive0;     // active breaking of the dominant waves (1800 m cascade)
 uniform float uSize[4];
 uniform float uTexel[4];
 uniform sampler2D uEnv;          // reflection environment (equirect, mips = roughness)
@@ -156,7 +157,8 @@ void main() {
     float crest = smoothstep(-0.2 * uHs, 0.3 * uHs, vDisp);
     foamRaw *= mix(0.65, 1.3, crest);
     // (a soft density ramp: the bubble pattern, not the field's outline, shapes the cap)
-    activeRaw = textureGrad(uActive, u1, dFdx(u1) * 1.6, dFdy(u1) * 1.6).r * 1.3;
+    activeRaw = textureGrad(uActive, u1, dFdx(u1) * 1.6, dFdy(u1) * 1.6).r * 1.3
+              + textureGrad(uActive0, u0, dFdx(u0) * 1.2, dFdy(u0) * 1.2).r * 0.8;
     activeRaw *= mix(0.6, 1.35, crest);
     // bubble plume: the same foam fields blurred over a few metres (bubbles spread and sink)
     vec4 b1 = texture(uDisp[1], u1, 1.2);
@@ -178,7 +180,7 @@ void main() {
   float kv = min(0.5 * (dot(dNx, dNx) + dot(dNy, dNy)), 0.08);
   // the footprint cannot hold more slope variance than the whole surface has (Cox-Munk): beyond that
   // the glitter path would stop narrowing toward the horizon. Rain roughness comes on top.
-  sigmaSq = min(sigmaSq + vec2(kv), vec2(0.5 * uMssTotal + 0.002)) + vec2(rr.z);
+  sigmaSq = min(sigmaSq + vec2(kv), vec2(0.5 * uMssTotal)) + vec2(rr.z);
   vec3 Ty = normalize(cross(N, vec3(1.0, 0.0, 0.0)));
   vec3 Tx = cross(Ty, N);
 

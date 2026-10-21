@@ -34,7 +34,7 @@ try {
       const dt = 1 / 30;
       if (film !== undefined) {
         // the sea under the frame's weather first: in the film, foam has built up since the act began
-        const t0 = Math.max(film - 3, 0), W = Math.min(film < 17 ? film : film - 17, 25);
+        const t0 = Math.max(film - 3, 0), W = Math.min(film < 17 ? film : film < 48 ? film - 17 : film - 48, 25);
         app.filmFrame(t0, dt);
         app.time = t0 - W;  // continuous wave phase: the warm-up ends exactly where the frames resume
         app.warmSea(W);
