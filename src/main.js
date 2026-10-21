@@ -23,8 +23,8 @@ const RENDER_MODE = params.has('render');
 // quality tiers: 'rt' keeps the live app interactive on integrated GPUs, 'high' is for the film
 const QUALITY = {
   rt: { cloudDiv: 3, steps: 44, lightSteps: 4, lightDetail: 1, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], angular: 400, upSteps: 2 },
-  ultra: { cloudDiv: 1, steps: 128, lightSteps: 6, lightDetail: 3, blend: 0.08, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], angular: 640, upSteps: 4 },
-  high: { cloudDiv: 1, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.08, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], angular: 640, upSteps: 4 },
+  ultra: { cloudDiv: 1, steps: 128, lightSteps: 6, lightDetail: 3, blend: 0.08, msaa: 4, hdr: 'rgba16f', check: false, fft: [512, 256, 256, 256], angular: 640, upSteps: 4 },
+  high: { cloudDiv: 1, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.08, msaa: 4, hdr: 'rgba16f', check: false, fft: [512, 256, 256, 256], angular: 640, upSteps: 4 },
 }[params.get('q') || (RENDER_MODE ? 'high' : 'rt')];
 
 export class App {
@@ -223,8 +223,9 @@ export class App {
     const lv = [lp[0] - this.cam.pos[0], (night ? lp[1] * 0.3 : lp[1] * 0.5) - this.cam.pos[1], lp[2] - this.cam.pos[2]];
     const flashDir = v3.norm(lv);
     // rain extinction: visibility ~ 3.9/beta drops from >20 km to ~1.5 km in a downpour
-    const fogDensity = S.mist * 1.2e-3 + S.rain * 1.3e-3;
-    const stormFog = S.sMist * 1.2e-3 + S.sRain * 1.3e-3;
+    const rainBeta = (r) => (r > 0.002 ? 0.336e-3 * Math.pow(r * 50, 0.63) : 0);
+    const fogDensity = S.mist * 1.2e-3 + rainBeta(S.rain);
+    const stormFog = S.sMist * 1.2e-3 + rainBeta(S.sRain);
     const fogU = {
       uFogDensity: fogDensity, uFogTop: fOn ? (S.cloudBase + S.sBase) * 0.5 + 100 : S.cloudBase + 100,
       uFogFront: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0], uFogStorm: [stormFog, night ? 0.65 : 0.5],
@@ -322,9 +323,9 @@ export class App {
     P.section('post');
     this.post.run(this.hdr, dt, {
       time: t, bloom: 0.015, // a camera's matrix meter lifts a frame dominated by a dark sea under a high sun
-      exposureBias: Number(params.get('ev') || 0) - 1.2 * L.dark * L.dark + 0.4 * (1 - smoothstep(0.2, 0.4, L.clouds)) * smoothstep(35, 50, W.time.sunElev),
-      skyU, cloudShadow: this.clouds.shadow, incident: 0.5 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : 0.1 + 0.25 * smoothstep(0.6, 0.95, L.clouds) * (night ? 0 : 1), night: night ? 1 : 0,
-      look: params.has('look') ? params.get('look').split(',').map(Number) : night ? [1.35, 0.4, 1.0, 0.004] : L.clouds > 0.8 ? [1.32, 0.4, 0.97, 0.0] : undefined,
+      exposureBias: Number(params.get('ev') || 0) - 0.5 * L.dark * L.dark * (0.4 + 0.6 * L.rain) + 0.4 * (1 - smoothstep(0.2, 0.4, L.clouds)) * smoothstep(35, 50, W.time.sunElev),
+      skyU, cloudShadow: this.clouds.shadow, incident: 0.65 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : 0.1 * smoothstep(0.25, 0.6, L.clouds) * (1 - backlit) * (night ? 0 : 1), night: night ? 1 : 0,
+      look: params.has('look') ? params.get('look').split(',').map(Number) : night ? [1.35, 0.4, 1.0, 0.004] : L.clouds > 0.8 ? [1.45, 0.38, 0.95, 0.015] : undefined,
     });
     P.end();
     this.stats = stats;

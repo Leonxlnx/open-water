@@ -110,7 +110,7 @@ photography. The measurable parts are checked with tools:
 | --- | --- | --- |
 | Significant wave height, Bf 5 / 7 / 9 (`tools/hscheck.mjs`) | 2–2.5 / 4–5.5 / 7–10 m | 2.1 / 4.8 / 9.2 m |
 | GPU height variance vs. spectrum integral | equal | within sampling error (±10%) |
-| Whitecap coverage at 8.5 / 15 / 21 / 28 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 3.9 / 12.4 / 33 % | 0.60 / 3.7 / 11.6 / 27.7 % |
+| Whitecap coverage at 8.5 / 15 / 21 / 28 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 3.9 / 12.4 / 33 % | 0.58 / 4.0 / 12.8 / ~26 % (pixels with foam over half opaque) |
 | Thunder delay | distance / 343 m/s | exact |
 | Visibility in the heaviest rain (Koschmieder, 3.9 / β) | ~2–3 km | 3.0 km |
 | Tonal range vs. reference photos (`tools/tonestats.mjs`) | p10 ≈ 5–45, highlights ≈ 230–255 | shadows deepened, highlights reach white |

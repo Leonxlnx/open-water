@@ -241,7 +241,7 @@ export class Post {
       uMaxLum: opts.maxLum ?? 10,
       uTime: opts.time,
       uGrain: opts.grain ?? 0.012,
-      uLook: opts.look ?? [1.45, 0.4, 1.04, 0.004],
+      uLook: opts.look ?? [1.5, 0.4, 1.08, 0.004],
       uVignette: opts.vignette ?? 0.18,
       uFlashExposure: opts.flashExposure ?? 0,
       uManualExposure: opts.manualExposure ?? 0,
