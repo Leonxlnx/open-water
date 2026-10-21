@@ -150,7 +150,7 @@ void main() {
     vec4 d0 = textureGrad(uDisp[0], smoothUv(u0, uSize[0] / uTexel[0]), dFdx(u0) * 0.5, dFdy(u0) * 0.5);
     vec4 d1 = textureGrad(uDisp[1], smoothUv(u1, uSize[1] / uTexel[1]), dFdx(u1) * 0.5, dFdy(u1) * 0.5);
     vec4 d2 = texture(uDisp[2], vXZ / uSize[2]);
-    foamRaw = d0.w * 0.32 + d1.w * 1.0 + d2.w * 0.75;
+    foamRaw = d0.w * 0.15 + d1.w * 1.0 + d2.w * 0.75;
     // waves break on the crests of the energetic (dominant) waves: whitecaps cluster there
     float crest = smoothstep(-0.2 * uHs, 0.3 * uHs, vDisp);
     foamRaw *= mix(0.65, 1.3, crest);

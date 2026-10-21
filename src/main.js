@@ -135,6 +135,22 @@ export class App {
     return { view, proj, vp, inv: invert(vp), fwd };
   }
 
+  // Advance only the sea (spectrum, FFT, foam) without rendering: brings long-lived foam to its
+  // steady state quickly before a still is taken.
+  warmSea(seconds, dt = 1 / 30) {
+    const W = this.weather;
+    for (let i = 0; i < Math.round(seconds / dt); i++) {
+      this.time += dt;
+      W.update(dt);
+      const S = W.state;
+      this.ocean.lambda = Math.max(S.choppy, W.choppyFor(S.wind));
+      const wdr = (S.windDir * Math.PI) / 180;
+      this.ocean.drift = [Math.cos(wdr) * 0.035 * S.wind, Math.sin(wdr) * 0.035 * S.wind];
+      this.ocean.setSpectrum(W.spectrum());
+      this.ocean.update(this.time, dt, W.foam());
+    }
+  }
+
   frame(dt) {
     const gl = this.gl;
     this.time += dt;

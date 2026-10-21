@@ -33,10 +33,17 @@ try {
     const data = await page.evaluate((film) => {
       const dt = 1 / 30;
       if (film !== undefined) {
+        // the sea under the frame's weather first: in the film, foam has built up since the act began
+        const t0 = Math.max(film - 3, 0), W = Math.min(film < 17 ? film : film - 17, 25);
+        app.filmFrame(t0, dt);
+        app.time = t0 - W;  // continuous wave phase: the warm-up ends exactly where the frames resume
+        app.warmSea(W);
         for (let t = Math.max(film - 3, -2); t < film - dt / 2; t += dt) app.filmFrame(t, dt);
         app.filmFrame(film, dt);
       } else {
-        for (let i = 0; i < 240; i++) app.frame(dt);
+        // the sea first (foam takes up to a minute to reach its steady state), then the sky history
+        app.warmSea(50);
+        for (let i = 0; i < 120; i++) app.frame(dt);
       }
       return app.canvas.toDataURL('image/png');
     }, s.film);

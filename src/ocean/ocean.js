@@ -7,7 +7,7 @@ import { rng } from '../math.js';
 
 const N = 256;
 export const CASCADES = [
-  { L: 640, },
+  { L: 1800, },
   { L: 117, },
   { L: 21, },
   { L: 3.7, },

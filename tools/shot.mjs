@@ -12,7 +12,8 @@ try {
     const dt = 1 / 30;
     const n = Math.round(warmSeconds / dt);
     const t0 = performance.now();
-    for (let i = 0; i < n; i++) app.frame(dt);
+    if (warmSeconds > 10) app.warmSea(warmSeconds - 4);
+    for (let i = 0; i < (warmSeconds > 10 ? Math.round(4 / dt) : n); i++) app.frame(dt);
     app.gl.finish();
     const ms = (performance.now() - t0) / n;
     const gl = app.gl;

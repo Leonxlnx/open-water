@@ -130,7 +130,8 @@ vec2 foamCoverage(vec2 xz, float f, float lace, float act, float dist) {
   float wrr = wr + (a.r - 0.5) * 0.22 + (b.r - 0.5) * 0.12;
   float Fs = F * mix(1.0, 0.2 + 1.6 * pow(smoothstep(0.2, 0.8, wrr), 2.0), uFoamStretch);
   // a bubble raft never fills its cells: the centres stay open, so old foam stays a network
-  float mA = A * 1.08 - Pa, mR = Fs * 0.62 - Pr;
+  // (very dense old foam, as in a gale, does fill most of its cells)
+  float mA = A * 1.08 - Pa, mR = Fs * mix(0.62, 0.9, smoothstep(0.5, 0.95, F)) - Pr;
   float covA = smoothstep(-edge, edge, mA) * smoothstep(0.04, 0.15, A);
   // residual foam is a thinner bubble raft: translucent, the water shows through
   // ... and thins as it ages: old foam is a translucent film that takes the water's tint

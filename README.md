@@ -41,7 +41,9 @@ breaking (dense froth that lives about 0.4 s) and residual foam (seconds to tens
 Both are drawn as the probability that a procedural bubble-raft pattern lies below the local
 foam density, so a whitecap is solid only at its core, its rim frays into filaments, and old foam
 opens up along the raft network into lace instead of shrinking as a blob. Crests break in
-segments of a few metres, and at gale force residual foam gathers into wind rows. The breaking
+segments of a few metres along the crest. Residual foam lives from about a second in a breeze to
+twenty seconds in a gale, thins into a translucent film as it ages, and at gale force gathers
+into ragged wind rows tens of metres long. The breaking
 threshold is expressed in standard deviations of the Jacobian and calibrated so coverage follows
 the Monahan & O'Muircheartaigh (1980) whitecap law within about 10% from 8 to 28 m/s
 (`tools/foam.mjs`).
@@ -53,7 +55,8 @@ through thick storm decks (a deck transmits E·μ₀·T/π). Faces turned to the
 sky and sea light behind it, so a storm's shadowed side is dark blue-grey, not black and not
 glowing. The marine aerosol has a realistic load (visibility around 100 km in clean air, a few
 tens of km in a storm), which gives the solar aureole, hazy golden horizons and distant clouds
-fading out.
+fading out. The cloud pass also records how far away its light comes from, so rain and mist are
+drawn in front of a cloud only up to that distance: a shelf cloud stands in front of its rain.
 
 A squall line moves the weather across the sea along a meandering front. It is a row of
 cumulonimbus cells about 10 km tall whose anvil overhangs ahead of the line; its face is
@@ -62,7 +65,8 @@ Haze standing in the storm's shadow scatters no direct sunlight, and neither do 
 curtains. A tiered shelf
 cloud rides the gust front, with scud racing beneath it. The rain curtains carry shafts and fade
 into the cloud base. Crepuscular rays are traced through the haze using the cloud-shadow map.
-Spindrift is torn off breaking crests at gale force, and spray haze hugs the sea.
+Spindrift is torn off actively breaking crests at gale force and drawn out along the wind, and
+spray haze hugs the sea.
 
 **Rain and storm.** Drop sizes follow Marshall–Palmer, with terminal velocities from Atlas et
 al. (1973). Streak photometry follows Garg & Nayar: a drop covers its streak only D/(v·T) of
