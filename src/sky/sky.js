@@ -68,42 +68,60 @@ void main() {
 
 const ENV_FS = SKY_LOOKUP_GLSL + `
 in vec2 vUv;
-out vec4 o;
+layout(location = 0) out vec4 o;
+layout(location = 1) out vec4 oDeck;   // the same without rain and mist: the light entering them
 uniform sampler2D uCloudsEnv;  // rgb in-scatter, a transmittance in env parameterisation
 uniform float uCloudsOn;
 uniform float uSunVis;
+uniform vec3 uEnvRrs;          // the sea's water-leaving reflectance (1/sr)
 const float PI_ = 3.14159265359;
 void main() {
   float phi = (vUv.x - 0.5) * 2.0 * PI_;
-  float theta = vUv.y * PI_;
+  // below the horizon: the mirrored direction (see the end)
+  float dy0 = cos(vUv.y * PI_);
+  float vUp = min(vUv.y, 1.0 - vUv.y);
+  float theta = vUp * PI_;
   vec3 d = vec3(cos(phi) * sin(theta), cos(theta), sin(phi) * sin(theta));
-  d.y = max(d.y, 0.0);
   d = normalize(d + vec3(0.0, 0.002, 0.0));
   vec3 col = skyRadiance(d);
   // a soft sun (pre-blurred); the sharp glint is handled analytically by the BRDF
   if (uCloudsOn > 0.5) {
-    // below the horizon the probe repeats the horizon row (not unclouded clear sky)
-    vec4 cl = texture(uCloudsEnv, vec2(vUv.x, min(vUv.y, 0.5 - 0.6 / float(textureSize(uCloudsEnv, 0).y))));
+    vec4 cl = texture(uCloudsEnv, vec2(vUv.x, min(vUp, 0.5 - 0.6 / float(textureSize(uCloudsEnv, 0).y))));
     col = col * cl.a + cl.rgb;
   }
+  vec3 deck = col;
   col = applyFog(col, d, 1e9);
+  // A ray reflected below the horizon meets the next wave nearby and sees that wave: the sky mirrored
+  // by its Fresnel reflectance and its water. The water shader folds such rays upwards itself; this
+  // half only feeds the mip chain, whose wide blur on a rough sea must not average in the haze glare
+  // that hugs the horizon.
+  if (dy0 < 0.0) {
+    float Fs = 0.02 + 0.98 * pow(1.0 - min(-dy0 + 0.12, 1.0), 5.0);
+    vec3 Ed = sunIlluminance() * uSunVis * max(uSunDir.y, 0.0) + skyIrradiance();
+    vec3 sea = Fs * col + (1.0 - Fs) * uEnvRrs * Ed;
+    col = sea;
+    deck = sea;
+  }
+  oDeck = vec4(deck, 1.0);
   o = vec4(col, 1.0);
 }`;
 
 const IRR_FS = `
 out vec4 o;
 uniform sampler2D uEnv;
+uniform sampler2D uEnvDeck;
 const float PI_ = 3.14159265359;
 vec2 equirectUv(vec3 d) { return vec2(atan(d.z, d.x) / (2.0 * PI_) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / PI_); }
 void main() {
-  // cosine-weighted hemisphere integral of the environment (sky + clouds)
+  // cosine-weighted hemisphere integral of the environment (sky + clouds); texel 1: without rain/mist
+  bool deck = gl_FragCoord.x > 1.0;
   vec3 E = vec3(0.0);
   for (int i = 0; i < 16; i++) for (int j = 0; j < 6; j++) {
     float phi = (float(i) + 0.5) / 16.0 * 2.0 * PI_;
     float ct = (float(j) + 0.5) / 6.0; // uniform in cos(theta)
     float st = sqrt(1.0 - ct * ct);
     vec3 d = vec3(cos(phi) * st, ct, sin(phi) * st);
-    E += textureLod(uEnv, equirectUv(d), 4.0).rgb * ct;
+    E += (deck ? textureLod(uEnvDeck, equirectUv(d), 4.0).rgb : textureLod(uEnv, equirectUv(d), 4.0).rgb) * ct;
   }
   // E = integral L cos dOmega = 2 pi * mean(L cos) for samples uniform in cos(theta)
   o = vec4(E / float(16 * 6) * 2.0 * PI_, 1.0);
@@ -114,19 +132,21 @@ export class Sky {
     this.gl = gl;
     this.pSky = new Program(gl, FULLSCREEN_VS, SKY_FS, { label: 'sky' });
     this.pEnv = new Program(gl, FULLSCREEN_VS, ENV_FS, { label: 'env' });
-    this.env = new Texture(gl, { w: 512, h: 256, format: 'rgba16f', mips: true, wrap: 'clamp' });
-    this.envTarget = new Target(gl, [this.env]);
+    this.env = new Texture(gl, { w: 512, h: 256, format: 'rgba16f', mips: true, wrap: 'clamp', aniso: 16 });
+    this.envDeck = new Texture(gl, { w: 512, h: 256, format: 'rgba16f', mips: true, wrap: 'clamp' });
+    this.envTarget = new Target(gl, [this.env, this.envDeck]);
     // wrap in azimuth (seam at 180 deg), clamp in elevation
     gl.bindTexture(gl.TEXTURE_2D, this.env.tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     this.pIrr = new Program(gl, FULLSCREEN_VS, IRR_FS, { label: 'irradiance' });
-    this.irradiance = new Texture(gl, { w: 1, h: 1, format: 'rgba16f', filter: 'nearest' });
+    this.irradiance = new Texture(gl, { w: 2, h: 1, format: 'rgba16f', filter: 'nearest' });
     this.irrTarget = new Target(gl, [this.irradiance]);
   }
   renderEnv(uniforms) {
     fullscreen(this.gl, this.pEnv, uniforms, this.envTarget);
     this.env.genMips();
-    fullscreen(this.gl, this.pIrr, { uEnv: this.env }, this.irrTarget);
+    this.envDeck.genMips();
+    fullscreen(this.gl, this.pIrr, { uEnv: this.env, uEnvDeck: this.envDeck }, this.irrTarget);
   }
   drawBackground(uniforms) {
     const gl = this.gl;

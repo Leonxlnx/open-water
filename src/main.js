@@ -204,7 +204,8 @@ export class App {
       uTransmittance: this.atmo.transmittance, uSunDir: sun, uAerialMax: this.atmo.maxDist,
       uIrradiance: this.sky.irradiance, uCamHkm: camH / 1000, uLightScale: lightScale, uLightMag: lightMag,
       // fraction of direct sun reaching the haze/rain below the clouds (a thick deck blocks it all)
-      uHazeSun: (1 - smoothstep(0.3, 0.9, L.clouds)) * (1 - 0.85 * L.dark) * 0.97 + 0.03 * (1 - L.dark),
+      // (a closed deck lets no direct sun through: the floor is for broken cloud only)
+      uHazeSun: (1 - smoothstep(0.3, 0.9, L.clouds)) * (1 - 0.85 * L.dark) * 0.97 + 0.03 * (1 - L.dark) * (1 - smoothstep(0.8, 0.9, L.clouds)),
     };
     // lightning: flash intensity drives cloud emission, sky/sea illumination and thunder
     if (params.has('strikeAt') && t >= Number(params.get('strikeAt')) && !this.forcedStrike) {
@@ -246,19 +247,27 @@ export class App {
       top: S.cloudBase + 1800 + S.cloudDark * 5200, density: 0.11 - S.cloudDark * 0.05, dark: S.cloudDark,
       front: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0],
       stormA: [S.sClouds, S.sDark, 0.11 - S.sDark * 0.05, S.sBase], stormTop: S.sBase + 2500 + S.sDark * 8000, // cumulonimbus tops ~9-10 km
-      flash: [lp[0], lp[1], lp[2], flash * (night ? 30 : 0.025)], flashColor: [0.75, 0.8, 1.0], blend: flash > 0.02 ? 0.85 : QUALITY.blend, steps: QUALITY.steps,
+      flash: [lp[0], lp[1], lp[2], flash * (night ? 30 : 0.025)], flashColor: [0.75, 0.8, 1.0], blend: QUALITY.blend + (0.85 - QUALITY.blend) * smoothstep(0.02, 0.3, flash), steps: QUALITY.steps,
       lightSteps: QUALITY.lightSteps, lightDetail: QUALITY.lightDetail, check: QUALITY.check, upSteps: QUALITY.upSteps,
       shapeLod: params.has('shapelod') ? Number(params.get('shapelod')) : -1,
     };
     P.section('clouds');
-    this.clouds.render(skyU, cloudU, { pos: this.cam.pos, inv: M.inv, vp: M.vp, fov: this.cam.fov });
+    // a flash changes the cloud light within a frame, so most of the history is dropped; the offline
+    // tiers then average several independently jittered passes instead of showing one noisy sample
+    const cloudPasses = flash > 0.02 && !QUALITY.check ? 4 : 1;
+    for (let k = 0; k < cloudPasses; k++) {
+      const b = cloudU.blend;
+      this.clouds.render(skyU, { ...cloudU, blend: b / (1 + k * b) }, { pos: this.cam.pos, inv: M.inv, vp: M.vp, fov: this.cam.fov });
+    }
     P.section('env');
     // crepuscular rays: haze scattering below the cloud base, shadowed by the cloud-shadow map
     Object.assign(skyU, {
       uShaftShadow: this.clouds.shadow, uShaftRect: this.clouds.shadowRect,
       uShaft: [this.atmo.uniforms.uMie[0] * 1e-3, Math.min(S.cloudBase, fOn ? S.sBase : 1e9), S.clouds > 0.05 ? 1.0 : 0.0, (this.time * 0.618) % 1],
     });
-    this.sky.renderEnv({ ...skyU, ...fogU, uCloudsEnv: this.clouds.env, uCloudsOn: 1, uSunVis: 1 });
+    // water-leaving reflectance: deep blue, greyer with bubbles in a high wind, grey-green in rain
+    const rrs = mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], smoothstep(5, 24, S.wind)), [0.0011, 0.0024, 0.0027], smoothstep(0.1, 0.8, L.rain));
+    this.sky.renderEnv({ ...skyU, ...fogU, uCloudsEnv: this.clouds.env, uCloudsOn: 1, uSunVis: 1, uEnvRrs: rrs });
 
     // main HDR pass
     P.section('sky');
@@ -283,7 +292,7 @@ export class App {
       uDisp: ot.disp.slice(0, 3), uSlope: ot.slope, uActive: ot.active[1], uActive0: ot.active[0], uLongSlope: Math.max(Math.sqrt(stats.bandMss[0] * 0.6), 0.01), uGlintArea: 2e-5, uSize: ot.sizes, uTexel: ot.texels, uDispScale: 1,
       uEnv: this.sky.env, uCloudShadow: this.clouds.shadow, uShadowRect: this.clouds.shadowRect,
       uUnresolved: stats.unresolved, uMssTotal: Math.max(stats.coxMunk, stats.resolvedMss + stats.unresolved), uHs: stats.hs,
-      uRrs: mixv(mixv([0.0004, 0.0030, 0.0085], [0.0012, 0.0026, 0.0022], smoothstep(5, 24, S.wind)), [0.0016, 0.0028, 0.0026], smoothstep(0.1, 0.8, L.rain)), uSSS: [0.004, 0.05, 0.042],
+      uRrs: rrs, uSSS: [0.004, 0.05, 0.042],
       uGust: [0.35 + 0.45 * smoothstep(3, 9, S.wind) * (1 - smoothstep(16, 24, S.wind)), this.gustDrift[0], this.gustDrift[1]],
       uFoamAmount: params.has('nofoam') ? 0 : 1, uFoamLace: smoothstep(10, 19, S.wind) * 0.45, uDbgMask: (params.get('dbg') || '1,1,1').split(',').map(Number), uTime: t, uRain: L.rain, uFlash: flashRGB,
       // a visible ground strike: channel foot xz, cloud base, channel radiance (as drawn, through the rain)
@@ -324,7 +333,7 @@ export class App {
     this.post.run(this.hdr, dt, {
       time: t, bloom: 0.015, // a camera's matrix meter lifts a frame dominated by a dark sea under a high sun
       exposureBias: Number(params.get('ev') || 0) - 0.5 * L.dark * L.dark * (0.4 + 0.6 * L.rain) + 0.4 * (1 - smoothstep(0.2, 0.4, L.clouds)) * smoothstep(35, 50, W.time.sunElev),
-      skyU, cloudShadow: this.clouds.shadow, incident: 0.65 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : 0.1 * smoothstep(0.25, 0.6, L.clouds) * (1 - backlit) * (night ? 0 : 1), night: night ? 1 : 0,
+      skyU, cloudShadow: this.clouds.shadow, incident: 0.65 * (1 - backlit), fade: this.fade ?? 1, whiteBalance: params.has('wb') ? Number(params.get('wb')) : (0.1 * smoothstep(0.25, 0.6, L.clouds) + 0.35 * smoothstep(0.8, 0.95, L.clouds)) * (1 - backlit) * (night ? 0 : 1), night: night ? 1 : 0,
       look: params.has('look') ? params.get('look').split(',').map(Number) : night ? [1.35, 0.4, 1.0, 0.004] : L.clouds > 0.8 ? [1.45, 0.38, 0.95, 0.015] : undefined,
     });
     P.end();

@@ -286,6 +286,8 @@ uniform float uCamHkm;
 uniform float uLightScale; // radiometric scale of the light source (kept at 1: fp16 buffers)
 uniform float uLightMag;   // apparent magnitude of the light source: sun -26.74, full moon -12.7
 vec3 skyIrradiance() { return texelFetch(uIrradiance, ivec2(0), 0).rgb; }
+// irradiance of the sky and clouds alone (the light that enters the rain and mist below the deck)
+vec3 deckIrradiance() { return texelFetch(uIrradiance, ivec2(1, 0), 0).rgb; }
 vec2 sunBasisAz(vec3 d) {
   vec3 sunH = normalize(vec3(uSunDir.x, 0.0, uSunDir.z) + vec3(1e-6, 0.0, 0.0));
   vec3 sunR = normalize(cross(vec3(0.0, 1.0, 0.0), sunH));
@@ -309,7 +311,7 @@ void aerial(vec3 d, float distKm, out vec3 L, out vec3 T) {
   // under a cloud deck the haze is lit by diffuse light from the cloud base, not the sun. Per channel:
   // in an isotropic diffuse field the haze takes the field's own colour (no warm band at the horizon)
   vec3 ext = 1.0 - T;
-  L = L * uHazeSun + ext * skyIrradiance() * (0.9 / (2.0 * 3.14159)) * (1.0 - uHazeSun);
+  L = L * uHazeSun + ext * deckIrradiance() * (0.9 / (2.0 * 3.14159)) * (1.0 - uHazeSun);
 }
 vec3 transmittanceAt(float hKm, float mu) {
   const float Rg_ = 6360.0, Rt_ = 6460.0;
@@ -378,10 +380,14 @@ vec3 fogRadiance(vec3 dir, float sunFrac) {
   float c = dot(dir, uSunDir);
   float g = 0.7;
   float ph = (1.0 - g * g) / (4.0 * 3.14159 * pow(1.0 + g * g - 2.0 * g * c, 1.5));
-  // thick haze in a hemisphere-lit field: in-scatter -> albedo * E / (2 pi) (sky above, dark sea below)
+  // thick haze in a hemisphere-lit field: in-scatter -> albedo * E / (2 pi) (sky above, dark sea below).
+  // A layer of rain several optical depths thick scatters many times and barely absorbs: its light
+  // field approaches the mean radiance E / pi (rain greys the view, it does not black out the day)
+  float tauV = uFogDensity * uFogTop;
+  float a = 0.46 + 0.45 * (1.0 - exp(-tauV));
   // lightning light scattered by rain and mist is concentrated towards the strike
   float fl = 0.2 + 2.2 * pow(max(dot(dir, uFlashDir), 0.0), 8.0);
-  return skyIrradiance() * (0.92 / (2.0 * 3.14159)) + sunIlluminance() * sunFrac * ph * 0.92 + uFlashFog * fl;
+  return deckIrradiance() * (a / 3.14159) + sunIlluminance() * sunFrac * ph * 0.92 + uFlashFog * fl;
 }
 float fogPathLength(vec3 dir, float dist) {
   // the veil only exists below the cloud base

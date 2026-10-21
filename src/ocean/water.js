@@ -81,9 +81,15 @@ const float M_PI = 3.14159265359;
 vec2 equirectUv(vec3 d) {
   return vec2(atan(d.z, d.x) / (2.0 * M_PI) + 0.5, acos(clamp(d.y, -1.0, 1.0)) / M_PI);
 }
-vec3 envSample(vec3 d, float lod) {
+// Sky seen by a rough facet ensemble: reflected rays spread by el (radians) in elevation. Tilting a
+// facet sideways turns a reflected ray of elevation e by only ~el tan(e) in azimuth, so at grazing
+// angles the blur is a narrow vertical streak, not a disk (a disk would average in sky far to the
+// side: the sun's aureole). Hardware anisotropic filtering takes the streak.
+vec3 envSample(vec3 d, float el) {
   d.y = max(d.y, 0.0);
-  return textureLod(uEnv, equirectUv(normalize(d)), lod).rgb;
+  d = normalize(d);
+  float az = el * min(d.y / max(sqrt(1.0 - d.y * d.y), 1e-3) + 0.03, 3.0);
+  return textureGrad(uEnv, equirectUv(d), vec2(az / (2.0 * M_PI), 0.0), vec2(0.0, el / M_PI)).rgb;
 }
 
 // Bruneton et al. 2010 (after Ross et al. 2005), Beckmann with slope variance.
@@ -228,8 +234,8 @@ void main() {
   // camera where only the sun's tiny disk resolves into sparkles
   float rough = sqrt(max(sigmaSq.x + sigmaSq.y - 2.0 * unres * (1.0 - mix(0.35, 1.0, smoothstep(4.0, 400.0, dist))), 4e-5));
   // mip from the BRDF width and from the spread of reflected directions within the pixel
-  float envLod = clamp(max(log2(rough * 96.0), log2(dR * 256.0 / 3.14159) + 0.5), 0.0, 7.0);
-  vec3 sky = envSample(R, envLod) * mix(1.0, F2, below) + below * (1.0 - F2) * uRrs * Ed;
+  float envSpread = min(max(rough * 1.18, dR * 1.41), 1.6);
+  vec3 sky = envSample(R, envSpread) * mix(1.0, F2, below) + below * (1.0 - F2) * uRrs * Ed;
   vec3 refl = F * sky;
   // rain impact stipple where a single impact (crater + crown, ~2 cm2) is about pixel-sized: a
   // Poisson count of impacts within the ~60 ms they stay visible; craters see the lower sky

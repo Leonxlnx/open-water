@@ -74,7 +74,11 @@ al. (1973). Streak photometry follows Garg & Nayar: a drop covers its streak onl
 the exposure. Ring waves expand at the capillary minimum speed, every impact leaves a
 centimetre-wide crater that relaxes in about 60 ms (some 2,600 per square metre and second in
 the heaviest rain), and splashes are crowns a few millimetres tall that last about 50 ms; only
-the largest drops throw 2–4 cm Worthington jets. Rain curtains have shafts, and visibility falls with rain rate. Lightning has multiple
+the largest drops throw 2–4 cm Worthington jets. Rain curtains have shafts, and visibility falls
+with rain rate (Atlas: β = 0.336·10⁻³ R^0.63 per metre). Rain barely absorbs, so a layer several
+optical depths thick is lit by the light entering it from the cloud deck and scatters it many
+times: rain greys the view without blacking out the day, and no direct sun reaches it under a
+closed deck. Lightning has multiple
 return strokes, a tortuous fractal channel whose branches taper and dim, and in-cloud
 illumination. It lights the scene with
 I/d² (about 100 lux at 1 km) relative to sun- or moonlight, so a daytime strike barely brightens

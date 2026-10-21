@@ -438,7 +438,7 @@ uniform int uSteps;
 uniform int uLightSteps;
 uniform int uLightDetail;
 uniform int uCheck;   // 1: raymarch one pixel of every 2x2 block per frame, reproject the rest
-float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+float jhash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
 void main() {
   vec4 ndc = vec4(vUv * 2.0 - 1.0, 1.0, 1.0);
   vec4 w = uInvViewProj * ndc;
@@ -452,7 +452,9 @@ void main() {
   ivec2 ip = ivec2(gl_FragCoord.xy);
   int slot = (ip.x & 1) + 2 * (ip.y & 1);
   if (uCheck == 1 && valid && uBlend < 0.5 && slot != (int(uFrame) & 3)) { o = hist; oD = vec4(histD); return; }
-  float j = ign(gl_FragCoord.xy + 5.588238 * uFrame);
+  // white-noise jitter, new every frame: its residue after the history average is fine grain, while a
+  // low-discrepancy pattern (IGN) leaves a regular crosshatch that no photograph has
+  float j = jhash(vec3(gl_FragCoord.xy, float(uFrame)));
   float hKm = max(uBase, 0.0) * 0.001;
   vec3 sunE = sunTransmittanceAt(hKm + 0.5, uSunDir.y);
   vec3 zen = skyRadiance(vec3(0.0, 1.0, 0.0));
@@ -496,14 +498,16 @@ uniform vec3 uAmbTop;
 uniform vec3 uAmbBot;
 uniform float uFrame;
 uniform sampler2D uHistory;
-float ign(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+float jhash(vec3 p) { p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
 void main() {
   float phi = (vUv.x - 0.5) * 2.0 * 3.14159265;
   float theta = vUv.y * 3.14159265;
   vec3 rd = vec3(cos(phi) * sin(theta), cos(theta), sin(phi) * sin(theta));
   if (rd.y < 0.0) { o = vec4(0.0, 0.0, 0.0, 1.0); return; }
   rd = normalize(rd + vec3(0.0, 0.002, 0.0));
-  float j = ign(gl_FragCoord.xy + 5.588238 * uFrame);
+  // white-noise jitter, new every frame: its residue after the history average is fine grain, while a
+  // low-discrepancy pattern (IGN) leaves a regular crosshatch that no photograph has
+  float j = jhash(vec3(gl_FragCoord.xy, float(uFrame)));
   vec3 sunE = sunTransmittanceAt(uBase * 0.001 + 0.5, uSunDir.y);
   vec3 zen = skyRadiance(vec3(0.0, 1.0, 0.0));
   vec3 hor = skyRadiance(normalize(vec3(uSunDir.z, 0.15, -uSunDir.x)));
