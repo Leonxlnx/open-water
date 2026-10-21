@@ -38,16 +38,24 @@ gale force it is drawn into streaks along the wind.
 **Sky.** The atmosphere follows Hillaire (2020): transmittance, multiple-scattering, sky-view
 and aerial-perspective LUTs. Clouds are volumetric, built from procedural Perlin–Worley noise
 with Beer–powder lighting, Wrenninge multiple-scattering octaves and two-stream diffusion
-through thick storm decks, plus scud below storm decks. Crepuscular rays are traced through the haze
-with the cloud-shadow map. A squall front moves the weather across the sea.
-Spindrift is torn off breaking crests at gale force.
+through thick storm decks. Light diffused through a deck takes the neutral-cool colour of
+sun plus skylight.
+
+A squall line moves the weather across the sea along a meandering front. It is a row of
+cumulonimbus cells about 10 km tall whose anvil overhangs ahead of the line. A tiered shelf
+cloud rides the gust front, with scud racing beneath it. The rain curtains carry shafts and fade
+into the cloud base. Crepuscular rays are traced through the haze using the cloud-shadow map.
+Spindrift is torn off breaking crests at gale force, and spray haze hugs the sea.
 
 **Rain and storm.** Drop sizes follow Marshall–Palmer, with terminal velocities from Atlas et
 al. (1973). Streak photometry follows Garg & Nayar: a drop covers its streak only D/(v·T) of
 the exposure. Ring waves expand at the capillary minimum speed, and splash jets rise where drops
 land. Rain curtains have shafts, and visibility falls with rain rate. Lightning has multiple
-return strokes, a fractal branched channel and in-cloud illumination. Thunder arrives at 343 m/s
-and loses its high frequencies with distance.
+return strokes, a fractal branched channel and in-cloud illumination. It lights the scene with
+I/d² (about 100 lux at 1 km) relative to sun- or moonlight, so a daytime strike barely brightens
+the sea, while at night it outshines the moon. The channel is hidden inside the cloud and dimmed
+by the rain between it and the viewer. Thunder arrives at 343 m/s and loses its high frequencies
+with distance.
 
 **Night.** The full moon takes over as the light source after civil twilight. This gives a
 moon glitter path, moonlit clouds and a halo in the haze. Stars are point sources with physical
@@ -56,8 +64,10 @@ scintillation near the horizon. They show only once the sky is dark enough. A sc
 (Purkinje) shift drains colour and tints the low light blue.
 
 **Camera and image.** The camera floats on the sea, heaving, pitching and rolling with waves
-longer than a small boat. Exposure uses incident-light metering with partial white balance,
-followed by AgX tone mapping, an energy-conserving bloom and film grain.
+longer than a small boat. Exposure meters the incident light, but meters the bright sky when
+shooting into a low sun, as a photographer would, and storms are exposed dark. White balance is
+fixed near daylight, so golden hour stays gold and storms stay steel-blue. AgX tone mapping is
+followed by a photographic S-curve, plus an energy-conserving bloom and film grain.
 
 **Sound.** Sea wash, whitecap hiss and gusting wind are synthesized from the same weather state.
 Rain and thunder are recordings. The film's soundtrack is rendered by the same engine in an
@@ -76,7 +86,11 @@ photography. The measurable parts are checked with tools:
 | Whitecap coverage at 8.5 / 15 / 21 m/s (`tools/foam.mjs`) | ~1.5–2× Monahan (visible residual foam included) | 0.8 / 6.5 / 19.7 % |
 | Thunder delay | distance / 343 m/s | exact |
 | Visibility in the heaviest rain (Koschmieder, 3.9 / β) | ~2–3 km | 3.0 km |
+| Tonal range vs. reference photos (`tools/tonestats.mjs`) | p10 ≈ 5–45, highlights ≈ 230–255 | shadows deepened, highlights reach white |
+| Lightning illuminance at 1 km (daytime) | ~100 lux on ~2000 lux storm light | +5% |
 
+A multi-agent review compared 13 scenes with real photographs and had independent judges confirm
+each discrepancy. A second adversarial code review then confirmed 30 bugs, every one fixed.
 Problems found and fixed this way included:
 - Sun glitter rendered as a milky sheet instead of sparkles.
 - Whitecaps missing at Bf 5.
@@ -84,6 +98,12 @@ Problems found and fixed this way included:
 - A brown cast from sunlit haze under a storm deck.
 - Hairline crest artifacts from mirrored downward reflections.
 - Foam outlines with polygonal edges from thresholding a bilinear field.
+- Waves travelling against the wind (sign of the time evolution).
+- A NaN sea below 2.2 m/s wind (negative Elfouhaily short-wave coefficient).
+- A veiled, compressed tonal range (highlights never above ~190/255).
+- Whitecaps unrelated to the dominant crests.
+- A seam in the sky reflection.
+- Lightning washing the whole frame out in daylight.
 
 ## Controls
 

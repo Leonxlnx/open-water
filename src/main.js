@@ -22,8 +22,8 @@ const mixv = (a, b, t) => a.map((x, i) => x + (b[i] - x) * t);
 const RENDER_MODE = params.has('render');
 // quality tiers: 'rt' keeps the live app interactive on integrated GPUs, 'high' is for the film
 const QUALITY = {
-  rt: { cloudDiv: 3, steps: 44, lightSteps: 4, lightDetail: 1, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], angular: 400 },
-  high: { cloudDiv: 2, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.3, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], angular: 640 },
+  rt: { cloudDiv: 3, steps: 44, lightSteps: 4, lightDetail: 1, blend: 0.14, msaa: 4, hdr: 'r11g11b10f', check: true, fft: [256, 256, 128, 128], angular: 400, upSteps: 2 },
+  high: { cloudDiv: 2, steps: 96, lightSteps: 6, lightDetail: 3, blend: 0.3, msaa: 4, hdr: 'rgba16f', check: false, fft: [256, 256, 256, 256], angular: 640, upSteps: 4 },
 }[params.get('q') || (RENDER_MODE ? 'high' : 'rt')];
 
 export class App {
@@ -229,7 +229,7 @@ export class App {
       front: fOn ? [fn[0], fn[1], fz, S.frontWidth] : [1, 0, 0, 0],
       stormA: [S.sClouds, S.sDark, 0.11 - S.sDark * 0.05, S.sBase], stormTop: S.sBase + 2500 + S.sDark * 8000, // cumulonimbus tops ~9-10 km
       flash: [lp[0], lp[1], lp[2], flash * (night ? 30 : 0.025)], flashColor: [0.75, 0.8, 1.0], blend: flash > 0.02 ? 0.85 : QUALITY.blend, steps: QUALITY.steps,
-      lightSteps: QUALITY.lightSteps, lightDetail: QUALITY.lightDetail, check: QUALITY.check,
+      lightSteps: QUALITY.lightSteps, lightDetail: QUALITY.lightDetail, check: QUALITY.check, upSteps: QUALITY.upSteps,
       shapeLod: params.has('shapelod') ? Number(params.get('shapelod')) : -1,
     };
     P.section('clouds');

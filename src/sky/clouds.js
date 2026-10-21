@@ -102,6 +102,7 @@ uniform vec4 uStormA;         // storm side: coverage, darkness, density, base
 uniform float uStormTop;      // storm side: top (m)
 uniform float uShapeLod;      // debug: >= 0 forces the shape-noise mip level
 uniform float uPixelAngle;    // radians per pixel of the pass (footprint for texture LOD)
+uniform int uUpSteps;         // steps of the sky-light (upward) march through decks
 // pixel footprint (m) at the current sample; set by the caller before density lookups
 float gFoot = 0.0;
 float lodFor(float texel) { return max(log2(max(gFoot, 1e-3) / texel), 0.0); }
@@ -314,11 +315,12 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
         float us = 180.0;
         vec3 up = p;
         for (int j = 0; j < 4; j++) {
+          if (j >= uUpSteps) break;
           up.y += us;
           float uh = heightOf(up);
           if (uh > top) break;
           tauUp += cloudDensityR(up, uh, false, R, base, top) * us;
-          us *= 2.4;
+          us *= uUpSteps < 3 ? 4.5 : 2.4;
         }
       } else {
         tauUp = sigma * (1.0 - hf) * (top - base) * 0.35;
@@ -530,7 +532,7 @@ export class Clouds {
     // reflection probe clouds (amortised via history blend)
     const en = 1 - this.envCur;
     if (full || this.frame % 2 === 1 || u.flash[3] > 0.01) {
-    fullscreen(gl, this.pEnv, { ...skyU, ...cu, ...amb, uCamPos: cam.pos, uFrame: this.reset ? 0 : this.frame, uHistory: this.envTex[this.envCur], uPixelAngle: (2 * Math.PI) / this.envTex[0].w }, this.envTargets[en]);
+    fullscreen(gl, this.pEnv, { ...skyU, ...cu, ...amb, uCamPos: cam.pos, uFrame: this.reset ? 0 : this.frame, uHistory: this.envTex[this.envCur], uPixelAngle: (2 * Math.PI) / this.envTex[0].w, uUpSteps: 2 }, this.envTargets[en]);
     this.envCur = en;
     }
 
@@ -539,7 +541,7 @@ export class Clouds {
       ...skyU, ...cu, ...amb,
       uInvViewProj: cam.inv, uPrevViewProj: this.prevVP || cam.vp, uCamPos: cam.pos,
       uHistory: this.tex[this.cur], uFrame: this.frame % 64, uBlend: this.reset ? 1 : u.blend ?? 0.2,
-      uPixelAngle: (cam.fov || 0.75) / this.h, uSteps: u.steps ?? 64, uLightSteps: u.lightSteps ?? 6, uLightDetail: u.lightDetail ?? 3, uCheck: u.check ? 1 : 0,
+      uPixelAngle: (cam.fov || 0.75) / this.h, uUpSteps: u.upSteps ?? 4, uSteps: u.steps ?? 64, uLightSteps: u.lightSteps ?? 6, uLightDetail: u.lightDetail ?? 3, uCheck: u.check ? 1 : 0,
     }, this.targets[next]);
     this.cur = next;
     this.prevVP = cam.vp;
