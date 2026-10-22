@@ -23,8 +23,9 @@ the cell still flickering on the horizon.
 ~300 m peak is carried by several modes and forms wave groups) and
 capillary-gravity dispersion. The wind sea uses the Elfouhaily et al. (1997) unified spectrum,
 whose short-wave regime is calibrated to Cox–Munk slope statistics. Spreading is Donelan–Banner
-near the peak and ECKV for short waves, blended toward a broad cos²ˢ spread as the wind
-approaches a gale (a confused, short-crested storm sea), plus a narrow-band swell. Choppy displacement gives
+near the peak and ECKV for short waves, and, for the shorter waves, blended toward a broad
+cos²ˢ spread as the wind approaches a gale (a confused storm sea under long-crested dominant waves),
+plus a narrow-band swell. Choppy displacement gives
 trochoidal crests, steeper as the wind rises (young storm seas). Significant wave heights match the Beaufort table (Bf 5: 2.1 m, Bf 7: 4.8 m,
 Bf 9: 9.2 m), and the GPU statistics are checked against the spectrum (`tools/hscheck.mjs`).
 
@@ -34,8 +35,9 @@ remainder, and no pixel may hold more slope variance than the whole surface has.
 carried by individual capillary facets: a pixel footprint holding N facets shows on average
 λ = E[L]·Ω☉ / (F·L☉)·N glints, sampled as a Poisson count, so the near field is discrete,
 full-brightness sparkles on dark water and the far field converges to the smooth glitter path.
-Near the camera the glinting facets are larger, so sparkles are fewer and brighter, and each
-one's brightness varies. A rough sea blurs the reflected sky mostly in elevation: tilting a facet
+Near the camera the glinting facets are larger, so sparkles are fewer and brighter; each one's
+brightness varies, lasts a few frames, and at grazing angles is drawn out along the foreshortened
+wave. A rough sea blurs the reflected sky mostly in elevation: tilting a facet
 sideways turns a grazing reflection by only about el·tan(e) in azimuth. A ray reflected below the
 horizon sees the next wave. Also modeled: averaged Fresnel, water-leaving radiance from ocean-optics remote-sensing
 reflectance (deep ultramarine that turns grey-green as breaking waves fill the water with
@@ -52,8 +54,8 @@ twenty seconds in a gale and fades out as it thins, and at gale force gathers in
 meandering wind rows tens of metres long. Fresh caps have an opaque white core; foam is a
 translucent layer over the water, never darker than it. The breaking
 threshold is expressed in standard deviations of the Jacobian and calibrated so coverage follows
-the Monahan & O'Muircheartaigh (1980) whitecap law within about 15% from 8 to 21 m/s, with active
-breaking about 35-50% of it
+the Monahan & O'Muircheartaigh (1980) whitecap law within about 10% from 8 to 21 m/s, with active
+breaking about 35-55% of it
 (`tools/foam.mjs`).
 
 **Sky.** The atmosphere follows Hillaire (2020): transmittance, multiple-scattering, sky-view
@@ -61,7 +63,7 @@ and aerial-perspective LUTs. Clouds are volumetric, built from procedural Perlin
 with Beer–powder lighting, Wrenninge multiple-scattering octaves and two-stream diffusion
 through thick storm decks (a deck transmits E·μ₀·T/π). Faces turned to the camera reflect the
 sky and sea light behind it, so a storm's shadowed side is dark blue-grey, not black and not
-glowing. The marine aerosol has a realistic load (visibility around 100 km in clean air, a few
+glowing. The marine aerosol scatters with a two-lobe phase function (a sharp forward lobe: a compact aureole) and has a realistic load (visibility around 100 km in clean air, a few
 tens of km in a storm), which gives the solar aureole, hazy golden horizons and distant clouds
 fading out. The cloud pass also records how far away its light comes from, so rain and mist are
 drawn in front of a cloud only up to that distance: a shelf cloud stands in front of its rain.
@@ -121,7 +123,7 @@ photography. The measurable parts are checked with tools:
 | --- | --- | --- |
 | Significant wave height, Bf 5 / 7 / 9 (`tools/hscheck.mjs`) | 2–2.5 / 4–5.5 / 7–10 m | 2.1 / 4.8 / 9.2 m |
 | GPU height variance vs. spectrum integral | equal | within sampling error (±10%) |
-| Whitecap coverage at 8.5 / 11 / 15 / 21 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 1.37 / 3.9 / 12.4 % | 0.48 / 1.36 / 3.4 / 12.4 % (pixels with foam over half opaque); actively breaking 0.24 / 0.47 / 1.4 / 5.2 % |
+| Whitecap coverage at 8.5 / 11 / 15 / 21 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 1.37 / 3.9 / 12.4 % | 0.56 / 1.41 / 4.2 / 11.1 % (pixels with foam over half opaque); actively breaking 0.32 / 0.57 / 1.4 / 4.9 % |
 | Thunder delay | distance / 343 m/s | exact |
 | Visibility in the heaviest rain (Koschmieder, 3.9 / β) | ~2–3 km | 3.0 km |
 | Tonal range vs. reference photos (`tools/tonestats.mjs`) | p10 ≈ 5–45, highlights ≈ 230–255 | shadows deepened, highlights reach white |

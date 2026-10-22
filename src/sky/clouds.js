@@ -177,13 +177,16 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   if (shelf > 0.0 && h < base) return shelf;
   // scud (fractus): ragged low fragments racing under a storm deck
   if (h < base) {
-    if (R.y < 0.5 || h < SCUD_BASE) return 0.0;
-    float sh = (h - SCUD_BASE) / max(base - SCUD_BASE, 1.0);
+    float sg = uFront.w > 0.0 ? smoothstep(0.5, 0.85, R.w) * (1.0 - smoothstep(5000.0, 9000.0, frontDist(p.xz))) : step(0.5, R.y);
+    if (sg <= 0.0 || h < SCUD_BASE) return 0.0;
     vec3 sp2 = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z) * 1.8) / vec3(1400.0, 500.0, 1400.0);
     vec4 n2 = textureLod(uShape, sp2, lodFor(1400.0 / 128.0));
+    float sb = SCUD_BASE + n2.b * 300.0;
+    float sh = (h - sb) / max(base - sb, 1.0);
+    if (sh <= 0.0) return 0.0;
     float frag = n2.r * 0.7 + n2.g * 0.3;
-    float d2 = smoothstep(0.68, 0.85, frag) * smoothstep(0.0, 0.35, sh) * (1.0 - smoothstep(0.55, 1.0, sh));
-    return d2 * R.z * (R.y - 0.5) * 2.0;
+    float d2 = smoothstep(0.6, 0.9, frag) * (0.4 + 0.6 * n2.b) * smoothstep(0.0, 0.35, sh) * (1.0 - smoothstep(0.55, 1.0, sh));
+    return d2 * R.z * sg * 0.5;
   }
   if (h > top) return shelf;
   float hf = (h - base) / (top - base);
@@ -268,7 +271,7 @@ float stormHazeLit(vec3 cam, vec3 rd, float md) {
   // the first 12 km are handled by the shadow-mapped crepuscular term (shafts) in the composite
   float tF = rate > 1e-4 ? max(-fd0 / rate, 0.0) : 1e9;
   float lit = 1.0 - max(md - min(max(sEdge, 12000.0), tF), 0.0) / max(md, 1.0);
-  return mix(0.25, 1.0, lit);
+  return mix(0.15, 1.0, lit);
 }
 float hg(float c, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * 3.14159 * pow(1.0 + g2 - 2.0 * g * c, 1.5)); }
 
@@ -413,7 +416,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // above no longer lets skylight through
       // (a storm face: its shadowed sides fall to ~30% of the sunlit side)
       amb += ambFace * (1.0 - diffUp) * smoothstep(0.5, 0.9, R.x) * mix(1.0, 0.55, R.w) * mix(1.0, smoothstep(0.03, 0.25, hf), step(0.5, R.y)) * mix(1.0, 0.4, step(0.5, R.y) * R.w);
-      if (h < base) amb *= 0.3; // scud: fragments in the deck's shade read darker than the deck
+      if (h < base) amb *= 0.6; // scud: fragments in the deck's shade read darker than the deck
       vec3 S = (sun + amb) * sigma;
       if (uFlash.w > 0.0) {
         float fd = length(p - uFlash.xyz);

@@ -103,7 +103,7 @@ float spectrum(vec2 k) {
   float eckv = (1.0 + delta * cos(2.0 * tw)) / (2.0 * PI) * (abs(tw) < 0.5 * PI ? 1.0 : eps) * 2.0 / (1.0 + eps);
   float db = donelanBanner(tw, sqrt(kl / kp));
   float D = mix(db, eckv, smoothstep(1.4, 3.5, kl / kp));
-  D = mix(D, cos2s(tw, 2.0), uSpreadBlend);
+  D = mix(D, cos2s(tw, 4.0), uSpreadBlend * smoothstep(1.5, 4.0, kl / kp));
   float Psi = S / kl * D;
   if (uSwell.x > 0.0) {
     float w = omegaOf(kl);

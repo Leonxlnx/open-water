@@ -149,7 +149,7 @@ void main() {
   float shape = mix(max(walls, beads), column, vJet);
   // a thin water sheet: translucent, showing the sky above it
   vec3 L = skyIrradiance() * (0.7 / 3.14159) + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0) * 0.15 + uFlash * 0.2;
-  float a = clamp(vAlpha * shape * uGain, 0.0, 0.65);
+  float a = clamp(vAlpha * shape * uGain, 0.0, 0.35);
   oColor = vec4(L * a, a);
 }`;
 
@@ -196,7 +196,7 @@ export class Rain {
     this.pSplash.use({
       ...u.skyU, uViewProj: u.viewProj, uCamPos: u.camPos, uTime: u.time, uRadius: 7,
       uCount: Math.min(u.rain * 1.3, 1), uDisp: u.disp, uSize: u.sizes, uPixelAngle: u.pixelAngle,
-      uFlash: u.flash, uGain: 2.4,
+      uFlash: u.flash, uGain: 1.2,
     });
     gl.bindVertexArray(this.vaoSplash);
     gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, this.splashes);

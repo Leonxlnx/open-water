@@ -20,9 +20,9 @@ const ACT1 = {
 const ACT2 = {
   start: 17, end: 48,
   weather: [
-    [17, { wind: 9, windDir: 230, clouds: 0.2, cloudDark: 0.05, cloudBase: 1300, rain: 0, mist: 0, haze: 1.0, choppy: 0.9, waveScale: 1, swellHs: 1.4, swellDir: 215, sunElev: 38, sunAz: 100, lightning: 0, fetch: 900,
+    [17, { wind: 9, windDir: 230, clouds: 0.2, cloudDark: 0.05, cloudBase: 1300, rain: 0, mist: 0, haze: 0.7, choppy: 0.9, waveScale: 1, swellHs: 1.4, swellDir: 215, sunElev: 38, sunAz: 100, lightning: 0, fetch: 900,
       front: 1, frontDist: 36000, frontAz: 52, frontWidth: 2600, sClouds: 0.97, sDark: 0.9, sBase: 650, sRain: 0.6, sMist: 0.15 }],
-    [26, { wind: 12, frontDist: 21000, haze: 1.2, choppy: 0.95, swellHs: 1.7 }],
+    [26, { wind: 12, frontDist: 21000, haze: 0.8, choppy: 0.95, swellHs: 1.7 }],
     [33, { wind: 17, frontDist: 2500, haze: 2.0, choppy: 1.12, swellHs: 2.2, fetch: 400 }],
     [40, { wind: 22, frontDist: -4000, haze: 3, choppy: 1.25, swellHs: 3.5, sRain: 0.85, sMist: 0.25 }],
     [48, { wind: 23.5, frontDist: -6000, haze: 3, choppy: 1.25, swellHs: 3.8 }],
