@@ -420,6 +420,9 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // above no longer lets skylight through
       // (a storm face: its shadowed sides fall to ~30% of the sunlit side)
       amb += ambFace * (1.0 - diffUp) * smoothstep(0.5, 0.9, R.x) * mix(1.0, 0.55, R.w) * mix(1.0, smoothstep(0.03, 0.25, hf), step(0.5, R.y)) * mix(1.0, 0.4, step(0.5, R.y) * R.w);
+      // a tall storm's faces see half the sky and half the dark sea: a thick cloud returns ~0.45 of the
+      // sky radiance there, not all of it (fair-weather tops are lit by the whole dome)
+      amb *= mix(1.0, 0.45, smoothstep(0.5, 0.9, R.y));
       if (h < base) amb *= 0.3; // scud: fragments in the deck's shade read darker than the deck
       vec3 S = (sun + amb) * sigma;
       if (uFlash.w > 0.0) {

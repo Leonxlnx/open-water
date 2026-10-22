@@ -471,12 +471,13 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     // (inside the storm: the shafts around the camera)
     vec2 xc = uFogCam + dir.xz * (tc > 0.0 ? tc : min(L, 2500.0));
     float along = dot(xc, vec2(-n.y, n.x));
-    float shafts = 0.02 + 3.5 * smoothstep(0.4, 0.75, fogNoise(along / 2200.0)) * (0.6 + 0.4 * fogNoise(along / 430.0 + 7.0));
+    // peaked shafts (no plateaus: a plateau reads as a slab with straight sides)
+    float shafts = 0.02 + 3.2 * pow(fogNoise(along / 2200.0), 2.5) * (0.6 + 0.4 * fogNoise(along / 430.0 + 7.0));
     // under the downpour the veil closes round the viewer, densest low down; the base shows above
     shafts = max(shafts, smoothstep(-w, w, s0) * (0.35 + 0.6 * fogNoise(along / 700.0 + 2.0)) * (1.0 - 0.35 * smoothstep(0.2, 0.6, dir.y)));
     // curtains fade out into the cloud base instead of ending at a ruler-straight line
     float hcr = max(dir.y * max(tc, 0.0), 0.0);
-    float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.25 * uFogTop, uFogTop * (0.8 + 0.4 * fogNoise(along / 900.0)), hcr));
+    float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.1 * uFogTop, uFogTop * (0.9 + 0.5 * fogNoise(along / 900.0)), hcr));
     st = min(st, mix(3.0 * shafts + 0.1, 1e4, smoothstep(-w, w, s0)));
     tau += st;
     stormFrac = st / max(tau, 1e-6);
