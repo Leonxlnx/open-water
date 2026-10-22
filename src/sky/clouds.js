@@ -150,7 +150,7 @@ float shelfDensity(vec3 p, float h) {
   if (uFront.w <= 0.0 || uStormA.y < 0.5) return 0.0;
   float d = frontDist(p.xz);
   // the face leans back with height (~25 deg)
-  float dl = d - (h - 260.0) * 2.2;
+  float dl = d + (h - 260.0) * 2.2;
   if (dl < -3400.0 || d > 1600.0) return 0.0;
   float u = clamp((dl + 3400.0) / 5000.0, 0.0, 1.0);
   vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / vec3(2400.0, 700.0, 2400.0);
@@ -334,7 +334,9 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       float stride = clamp(t * 0.02, coarse, max(coarse, 600.0));
       if (cloudDensityR(p, h, false, R, base, top) > 0.0) {
         inside = true; miss = 0;
-        if (allowBack) { tEnter = t; t = max(t - stride, max(t0, tDone)); allowBack = false; continue; }
+        // (fine steps restart at a jittered phase: a back-step clamped to the shell entry would
+        // otherwise put every pixel's samples at the same depths, printing contour bands)
+        if (allowBack) { tEnter = t; t = max(t - stride, max(t0, tDone)) + fine * jitter; allowBack = false; continue; }
       } else { t += stride; continue; }
     }
     // distance LOD: erosion detail and long light paths are sub-pixel far away

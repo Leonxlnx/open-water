@@ -474,7 +474,7 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     float along = dot(xc, vec2(-n.y, n.x));
     float shafts = 0.02 + 3.0 * pow(fogNoise(along / 1700.0), 3.0) * (0.6 + 0.4 * fogNoise(along / 430.0 + 7.0));
     // under the downpour the veil closes round the viewer, densest low down; the base shows above
-    shafts = max(shafts, smoothstep(-w, w, s0) * (0.35 + 0.6 * fogNoise(along / 700.0 + 2.0)) * (1.0 - 0.6 * smoothstep(0.15, 0.5, dir.y)));
+    shafts = max(shafts, smoothstep(-w, w, s0) * (0.35 + 0.6 * fogNoise(along / 700.0 + 2.0)) * (1.0 - 0.35 * smoothstep(0.2, 0.6, dir.y)));
     // curtains fade out into the cloud base instead of ending at a ruler-straight line
     float hcr = max(dir.y * max(tc, 0.0), 0.0);
     float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.25 * uFogTop, uFogTop * (0.8 + 0.4 * fogNoise(along / 900.0)), hcr));
