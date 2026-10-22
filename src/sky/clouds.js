@@ -658,13 +658,24 @@ export class Clouds {
     }
 
     const next = 1 - this.cur;
-    fullscreen(gl, this.pScreen, {
+    const screenU = {
       ...skyU, ...cu, ...amb,
       uInvViewProj: cam.inv, uPrevViewProj: this.prevVP || cam.vp, uCamPos: cam.pos,
       uHistory: this.tex[this.cur], uHistoryD: this.dtex[this.cur], uFrame: this.frame % 64, uBlend: this.reset ? 1 : u.blend ?? 0.2,
       uPrevWindOffset: this.prevWind || u.windOffset,
       uPixelAngle: (cam.fov || 0.75) / this.h, uUpSteps: u.upSteps ?? 4, uSteps: u.steps ?? 64, uLightSteps: u.lightSteps ?? 6, uLightDetail: u.lightDetail ?? 3, uCheck: u.check ? 1 : 0,
-    }, this.targets[next]);
+    };
+    // a full-resolution march is drawn in strips, each flushed on its own: one long draw can exceed the
+    // GPU driver's watchdog on integrated GPUs (a reset, or worse)
+    const strips = this.h > 400 ? Math.ceil(this.h / 270) : 1;
+    if (strips > 1) gl.enable(gl.SCISSOR_TEST);
+    for (let s = 0; s < strips; s++) {
+      const y0 = Math.floor((this.h * s) / strips), y1 = Math.floor((this.h * (s + 1)) / strips);
+      if (strips > 1) gl.scissor(0, y0, this.w, y1 - y0);
+      fullscreen(gl, this.pScreen, screenU, this.targets[next]);
+      if (strips > 1) gl.flush();
+    }
+    if (strips > 1) gl.disable(gl.SCISSOR_TEST);
     this.cur = next;
     this.prevVP = cam.vp;
     this.prevWind = [...u.windOffset];
