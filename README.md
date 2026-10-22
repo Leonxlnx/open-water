@@ -131,8 +131,7 @@ photography. The measurable parts are checked with tools:
 
 Side by side with NOAA's Beaufort-scale photographs. The render is on the left, seen from a ship's
 deck 14 m up. The photos are from the NOAA Photo Library (public domain) and carry their film
-stock's colour cast. At force 9 the real sea is darker, with denser foam lace than the render
-produces so far.
+stock's colour cast. At force 9 the photo's sea is darker and its foam lace finer than the render's.
 
 | Force 5 (8.5 m/s) | Force 7 (15 m/s) | Force 9 (21 m/s) |
 | --- | --- | --- |
