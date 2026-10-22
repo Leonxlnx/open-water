@@ -1,6 +1,6 @@
 // The 60-second film: deterministic weather + camera timelines (keyframes, smooth interpolation),
-// in three acts. I: golden-hour calm. II: a squall line crosses the sea towards the camera, the
-// sunlit foreground against a black wall of cloud and rain, then gale, downpour and lightning.
+// in three acts. I: golden-hour calm. II: the storm arrives as the sky clouds over (building cumulus,
+// then a low, dark deck), then gale, downpour and lightning.
 // III: night after the storm, a moonlit swell, the storm bank flickering silently on the horizon.
 
 const smooth = (t) => t * t * (3 - 2 * t);

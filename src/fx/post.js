@@ -9,7 +9,9 @@ out vec4 o;
 uniform sampler2D uSrc;
 uniform vec2 uTexel;
 uniform float uFirst;
-vec3 s(vec2 uv) { return texture(uSrc, uv).rgb; }
+// non-finite input (a NaN or overflowed pixel) must not spread through the pyramid
+bool bad(vec3 v) { return any(isnan(v)) || any(isinf(v)) || !(abs(v.x) + abs(v.y) + abs(v.z) < 1e9); }
+vec3 s(vec2 uv) { vec3 v = texture(uSrc, uv).rgb; return bad(v) ? vec3(0.0) : clamp(v, vec3(0.0), vec3(60000.0)); }
 float lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 void main() {
   // 13-tap (Jimenez 2014)
@@ -53,9 +55,11 @@ out vec4 o;
 uniform sampler2D uSrc;
 void main() {
   vec3 c = texture(uSrc, vUv).rgb;
-  // centre-weighted metering
+  // centre-weighted metering; a non-finite pixel is left out (weight 0)
   vec2 d = vUv - 0.5;
   float w = exp(-dot(d, d) * 3.0);
+  if (any(isnan(c)) || any(isinf(c)) || !(abs(c.x) + abs(c.y) + abs(c.z) < 1e9)) { o = vec4(0.0); return; }
+  c = min(c, vec3(60000.0));
   // log luminance and log chroma (R/G, B/G): geometric means over the frame via the mip chain
   c = max(c, vec3(1e-6));
   o = vec4(log(max(dot(c, vec3(0.2126, 0.7152, 0.0722)), 1e-6)) * w, w, log(c.r / c.g) * w, log(c.b / c.g) * w);
@@ -89,7 +93,11 @@ void main() {
   vec4 prevT = texelFetch(uPrev, ivec2(0), 0);
   float prev = prevT.r;
   vec3 prevWb = prevT.gba;
-  if (prev <= 0.0 || isnan(prev)) { prev = target; prevWb = wb; }
+  bool badT = isnan(target) || isinf(target) || !(target > 0.0 && target < 1e9) || any(isnan(wb)) || any(isinf(wb));
+  bool badP = !(prev > 0.0 && prev < 1e9) || isnan(prev) || isinf(prev) || any(isnan(prevWb)) || any(isinf(prevWb)) || !(prevWb.g > 0.1 && prevWb.g < 10.0);
+  if (badT && badP) { o = vec4(1.0, 1.0, 1.0, 1.0); return; }
+  if (badT) { o = vec4(prev, prevWb); return; }
+  if (badP) { prev = target; prevWb = wb; }
   float a = 1.0 - exp(-uDt * uSpeed);
   o = vec4(exp(mix(log(prev), log(target), a)), mix(prevWb, wb, a));
 }`;
@@ -154,6 +162,9 @@ float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.545
 
 void main() {
   vec3 hdr = texture(uHdr, vUv).rgb;
+  // (an overflowed pixel is a bright one; a NaN pixel is dropped)
+  if (any(isnan(hdr))) hdr = vec3(0.0);
+  else if (any(isinf(hdr)) || !(abs(hdr.x) + abs(hdr.y) + abs(hdr.z) < 1e9)) hdr = vec3(60000.0);
   vec3 bloom = texture(uBloom, vUv).rgb;
   vec3 c = mix(hdr, bloom, uBloomStrength);
   vec4 adapt = texelFetch(uAdapt, ivec2(0), 0);

@@ -117,7 +117,8 @@ float frontMask(vec2 xz) { return uFront.w > 0.0 ? smoothstep(-uFront.w, uFront.
 const float SCUD_BASE = 260.0;
 float shellBase() {
   float b = uFront.w > 0.0 ? min(uBase, uStormA.w) : uBase;
-  bool storm = uDark > 0.5 || (uFront.w > 0.0 && uStormA.y > 0.5);
+  // (only once scud is visible: a lowered shell with no cloud in it is pure cost)
+  bool storm = smoothstep(0.5, 0.9, uDark) > 0.02 || (uFront.w > 0.0 && uStormA.y > 0.5);
   return storm ? min(b, SCUD_BASE) : b;
 }
 float shellTop() { return uFront.w > 0.0 ? max(uTop, uStormTop) : uTop; }
@@ -148,7 +149,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   // scud (fractus): ragged low fragments racing under a storm deck
   if (h < base) {
     float sg = uFront.w > 0.0 ? smoothstep(0.5, 0.85, R.w) * (1.0 - smoothstep(5000.0, 9000.0, frontDist(p.xz))) : smoothstep(0.5, 0.9, R.y);
-    if (sg <= 0.0 || h < SCUD_BASE) return 0.0;
+    if (sg < 0.02 || h < SCUD_BASE) return 0.0;
     vec3 sp2 = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z) * 1.8) / vec3(1400.0, 500.0, 1400.0);
     vec4 n2 = textureLod(uShape, sp2, lodFor(1400.0 / 128.0));
     float sb = SCUD_BASE + n2.b * 300.0;
@@ -329,9 +330,11 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // far away the light path must still span the cloud (few long steps), or shading follows noise
       // the march spans the same ~2.6 km whatever the step count (env, far field, quality tier),
       // so coarse passes don't see thick decks as thin and sunlit inside
-      int nL = (nearField || R.y > 0.5) ? lightSteps : 4;
+      // scud under a deck is lit analytically: the column above it is opaque to the sun anyway
+      bool scud = h < base;
+      int nL = scud ? 0 : ((nearField || R.y > 0.5) ? lightSteps : 4);
       float lgrow = 2.0;
-      float ls = 2600.0 / (exp2(float(nL)) - 1.0);
+      float ls = 2600.0 / max(exp2(float(nL)) - 1.0, 1.0);
       vec3 lp = p;
       float marched = 0.0;
       bool exited = false;
@@ -350,14 +353,16 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
         tau += tau / marched * rest;
       }
       // scud sits under the deck: sunlight must cross the whole layer above it
-      if (h < base) tau += R.z * (top - base) * 0.25 / max(uSunDir.y, 0.1);
+      if (scud) tau += R.z * (top - base) * 0.8 / max(uSunDir.y, 0.1);
       float msK = 1.0 - exp(-(tau + sigma * 30.0));
       float ms = ph0 * exp(-tau) + msK * (0.7 * ph1 * exp(-0.5 * tau) + 0.49 * ph2 * exp(-0.25 * tau) + 0.343 * ph3 * exp(-0.125 * tau));
       // powder: in-scattering probability is low at cloud edges facing the light
       float powder = 1.0 - exp(-2.0 * tau - sigma * 80.0);
       // optical depth of the column above: diffuse light filtering down through the deck
       float tauUp = 0.0;
-      if (R.x > 0.55) {
+      if (scud) {
+        tauUp = R.z * (top - base) * 0.5;
+      } else if (R.x > 0.55) {
         float us = 180.0, marchedUp = 0.0, uhLast = h;
         vec3 up = p;
         for (int j = 0; j < 4; j++) {
@@ -491,6 +496,8 @@ void main() {
   float dk = md * 0.001;
   if (valid) {
     float bl = uCheck == 1 ? min(uBlend * 2.5, 1.0) : uBlend;
+    // (a non-finite history texel would persist and spread through the bilinear reprojection)
+    if (any(isnan(hist)) || any(isinf(hist)) || !(abs(hist.r) + abs(hist.g) + abs(hist.b) + abs(hist.a) < 1e5) || !(abs(histD) < 1e6)) { hist = c; histD = dk; }
     c = mix(hist, c, bl);
     dk = mix(histD, dk, bl);
   }
@@ -539,6 +546,7 @@ void main() {
     c.rgb = c.rgb * aT + aL * (1.0 - c.a) * 0.9;
   }
   vec4 h = texture(uHistory, vUv);
+  if (any(isnan(h)) || any(isinf(h)) || !(abs(h.r) + abs(h.g) + abs(h.b) + abs(h.a) < 1e5)) h = c;
   o = mix(h, c, uFrame < 1.5 ? 1.0 : 0.25);
 }`;
 
@@ -648,7 +656,8 @@ export class Clouds {
     };
     // a full-resolution march is drawn in strips, each flushed on its own: one long draw can exceed the
     // GPU driver's watchdog on integrated GPUs (a reset, or worse)
-    const strips = this.h > 400 ? Math.ceil(this.h / 270) : 1;
+    // (bounded by pixel count: a strip as wide as a 1080p frame is already 4x a 480x270 pass)
+    const strips = Math.max(1, Math.ceil((this.w * this.h) / (480 * 270)));
     if (strips > 1) gl.enable(gl.SCISSOR_TEST);
     for (let s = 0; s < strips; s++) {
       const y0 = Math.floor((this.h * s) / strips), y1 = Math.floor((this.h * (s + 1)) / strips);

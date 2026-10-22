@@ -19,7 +19,10 @@ void main() {
   vec3 p = mix(aA.xyz, aB.xyz, c.y);
   vec3 toCam = uCamPos - p;
   float dist = length(toCam);
-  vec3 side = normalize(cross(aB.xyz - aA.xyz, toCam));
+  // a segment seen end-on (or of zero length) has no defined side: avoid normalize(0) = NaN
+  vec3 cr = cross(aB.xyz - aA.xyz, toCam);
+  float cl = length(cr);
+  vec3 side = cl > 1e-6 ? cr / cl : normalize(cross(vec3(0.0, 1.0, 0.0), toCam) + vec3(1e-4, 0.0, 0.0));
   // a few metres of glowing channel, at least ~2.5 px wide; radiance scaled to keep energy
   float wPhys = 0.8 * aB.w;
   float wPix = dist * uPixelAngle * 1.6;
@@ -40,7 +43,7 @@ uniform vec3 uColor;
 void main() {
   float x = clamp(abs(vUv.x * 2.0 - 1.0), 0.0, 1.0);
   float core = exp(-x * x * 9.0);
-  oColor = vec4(uColor * core * vI * vClip * uIntensity, 0.0);
+  oColor = vec4(min(uColor * core * vI * vClip * uIntensity, vec3(30000.0)), 0.0);
 }`;
 
 export class Lightning {

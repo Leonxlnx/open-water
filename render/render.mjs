@@ -17,9 +17,16 @@ const warm = Number(args.warm || 4);
 const crf = args.crf || '15';
 
 await mkdir(dirname(out), { recursive: true });
-const browser = await launch({ width: W, height: H });
+let browser, page;
+// a long GPU render can lose its WebGL context (driver or GPU-process reset): frames then come back
+// black. Such a frame is detected and the render resumes from it in a fresh browser.
+async function openPage() {
+  browser = await launch({ width: W, height: H });
+  page = await openApp(browser, `http://localhost:5173/?render&q=${quality}&scale=1`, { width: W, height: H });
+  await page.evaluate(() => { window.__lost = false; app.gl.canvas.addEventListener('webglcontextlost', () => { window.__lost = true; }); });
+}
+await openPage();
 try {
-  const page = await openApp(browser, `http://localhost:5173/?render&q=${quality}&scale=1`, { width: W, height: H });
   const size = await page.evaluate(() => [app.w, app.h]);
   console.log('canvas', size.join('x'));
 
@@ -63,13 +70,15 @@ try {
   ], { stdio: ['pipe', 'inherit', 'inherit'] });
 
   // warm-up: settle foam history, cloud accumulation and camera filters before the first frame
-  await page.evaluate((from, warm, fps) => {
+  const warmUp = (t1) => page.evaluate((t1, warm, fps) => {
     const dt = 1 / fps;
-    for (let t = from - warm; t < from - dt / 2; t += dt) { app.filmFrame(t, dt); app.gl.finish(); }
-  }, from, warm, fps);
+    for (let t = t1 - warm; t < t1 - dt / 2; t += dt) { app.filmFrame(t, dt); app.gl.finish(); }
+  }, t1, warm, fps);
+  await warmUp(from);
 
   const total = Math.round((to - from) * fps);
   const t0 = Date.now();
+  let resumes = 0;
   for (let i = 0; i < total; i++) {
     const t = from + i / fps;
     // raw RGBA (lossless, ~3x faster than PNG); rows are bottom-up, flipped by ffmpeg
@@ -77,11 +86,26 @@ try {
       app.filmFrame(t, dt);
       const gl = app.gl;
       const px = (window.__px ||= new Uint8Array(app.w * app.h * 4));
+      px.fill(0);
       gl.readPixels(0, 0, app.w, app.h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+      // the film is never black outside its fades: a black frame means the GPU dropped the context
+      let peak = 0;
+      for (let j = 0; j < px.length; j += 4 * 997) peak = Math.max(peak, px[j], px[j + 1], px[j + 2]);
+      if (window.__lost || gl.isContextLost() || (app.fade > 0.05 && peak < 4)) return null;
       let s = '';
       for (let j = 0; j < px.length; j += 0x8000) s += String.fromCharCode.apply(null, px.subarray(j, j + 0x8000));
       return btoa(s);
-    }, t, 1 / fps);
+    }, t, 1 / fps).catch((e) => { console.log('frame error', e.message); return null; });
+    if (b64 === null) {
+      if (++resumes > 4) throw new Error('GPU context lost too often');
+      console.log(`context lost at frame ${i} (t=${t.toFixed(3)}s): resuming in a fresh browser`);
+      await browser.close().catch(() => {});
+      await new Promise((r) => setTimeout(r, 20000));
+      await openPage();
+      await warmUp(t);
+      i--;
+      continue;
+    }
     const buf = Buffer.from(b64, 'base64');
     if (!ff.stdin.write(buf)) await new Promise((r) => ff.stdin.once('drain', r));
     if (i % 30 === 0) {

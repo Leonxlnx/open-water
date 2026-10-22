@@ -7,14 +7,14 @@ material is sound (rain and thunder).
 
 | | |
 | --- | --- |
-| ![Golden hour](media/golden-hour.jpg) | ![A squall line of cumulonimbus approaches](media/squall.jpg) |
-| ![Under the shelf cloud](media/shelf.jpg) | ![Lightning](media/lightning.jpg) |
+| ![Golden hour](media/golden-hour.jpg) | ![Cumulus building as the storm arrives](media/squall.jpg) |
+| ![The storm deck lowers](media/shelf.jpg) | ![Lightning](media/lightning.jpg) |
 | ![Gale and rain](media/storm.jpg) | ![Moonlit night, the storm flickering on the horizon](media/night.jpg) |
 
 **Live:** https://leonxlnx.github.io/open-water/ · **Film:** [`media/open-water.mp4`](media/open-water.mp4) (one minute, 1080p60, rendered offline by the same engine; the full-quality master is on the [releases page](https://github.com/Leonxlnx/open-water/releases)).
 
-The film runs in three acts: a golden-hour calm; a squall line of cumulonimbus crossing the sea,
-with its shelf cloud, rain curtains, gale and lightning; and a moonlit night after the storm, with
+The film runs in three acts: a golden-hour calm; a storm arriving as the sky clouds over, from
+building cumulus to a low, dark deck, then rain, a gale and lightning; and a moonlit night after the storm, with
 the cell still flickering on the horizon.
 
 ## What is simulated
@@ -66,15 +66,15 @@ sky and sea light behind it, so a storm's shadowed side is dark blue-grey, not b
 glowing. The marine aerosol scatters with a three-lobe phase function (a sharp core inside a graded aureole, a little backscatter) and has a realistic load (visibility around 100 km in clean air, a few
 tens of km in a storm), which gives the solar aureole, hazy golden horizons and distant clouds
 fading out. The cloud pass also records how far away its light comes from, so rain and mist are
-drawn in front of a cloud only up to that distance: a shelf cloud stands in front of its rain.
+drawn in front of a cloud only up to that distance.
 
 A squall line moves the weather across the sea along a meandering front. It is a row of
 cumulonimbus cells about 10 km tall whose anvil overhangs ahead of the line; its face is
 displaced by kilometre-scale 3D noise that grows with height, so the towers bulge and recede.
 Haze standing in the storm's shadow scatters no direct sunlight, and neither do its rain
-curtains. A tiered shelf
-cloud rides the gust front, with scud racing beneath it. The rain curtains carry shafts and fade
-into the cloud base. Crepuscular rays are traced through the haze using the cloud-shadow map.
+curtains. Scud races beneath the storm near the camera. Storm clouds are optically thick like real
+cumulonimbus (shaded faces at about half the sky's radiance), and the rain curtains carry broad,
+uneven shafts that reach up into the cloud base. Crepuscular rays are traced through the haze using the cloud-shadow map.
 Spindrift is torn off actively breaking crests at gale force and drawn out along the wind, and
 spray haze hugs the sea.
 
@@ -109,7 +109,8 @@ cool light within a camera's AWB range. AgX tone mapping is followed by a photog
 plus a bloom with geometrically falling level weights (a tight lens core, a faint wide skirt)
 and film grain.
 
-**Sound.** Sea wash, whitecap hiss and gusting wind are synthesized from the same weather state.
+**Sound.** Sea wash, whitecap hiss and gusting wind are synthesized from the same weather state;
+the noise beds loop seamlessly and water slaps against the hull as soft, low thuds.
 Rain and thunder are recordings. The film's soundtrack is rendered by the same engine in an
 `OfflineAudioContext`.
 
