@@ -488,7 +488,7 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     float a2 = along / 1700.0 + 0.6 * fogNoise(along / 600.0);
     float streak = (fogNoise(a2 * 1.9 + hc / 1400.0) * 0.5 + fogNoise(a2 * 4.1 + hc / 900.0 + 3.3) * 0.3 + fogNoise(a2 * 8.7 + 5.1) * 0.2) * 0.6 + near * (fogNoise(along / 260.0 + hc / 500.0 + 3.0) * 0.28 + fogNoise(along / 85.0 + hc / 180.0 + 9.0) * 0.12) + (1.0 - near) * 0.2;
     // (far curtains: the streaks merge; only the broad shafts remain)
-    stormFrac *= mix(0.45 + 1.1 * streak, 0.72 + 0.5 * streak, near);
+    stormFrac *= mix(0.85 + 0.3 * streak, 0.72 + 0.5 * streak, near);
     tcurtain = max(tc, 0.0);
   }
   // wind-borne spray hugging the sea (scale height H ~ 20 m): integral of exp(-h/H) along the ray
@@ -503,7 +503,8 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
   float T = exp(-tau);
   // the storm's rain curtains stand in the storm's shadow: no direct sun, darker diffuse light
   float sf = clamp(stormFrac, 0.0, 1.0);
-  float behind = uFogFront.w > 0.0 ? smoothstep(0.05, 0.5, -dot(normalize(uSunDir.xz + 1e-5), uFogFront.xy)) : 0.0;
+  // (moonlight is too faint to light distant curtains from behind)
+  float behind = uFogFront.w > 0.0 && uLightMag < -20.0 ? smoothstep(0.05, 0.5, -dot(normalize(uSunDir.xz + 1e-5), uFogFront.xy)) : 0.0;
   // (sunlit rain is a neutral grey-white: large drops scatter all wavelengths alike)
   vec3 lit = vec3(dot(fogRadiance(dir, 0.6), vec3(0.2126, 0.7152, 0.0722))) * vec3(0.95, 0.98, 1.03) * 0.55;
   vec3 shade = vec3(dot(fogRadiance(dir, 0.0), vec3(0.2126, 0.7152, 0.0722))) * vec3(0.92, 0.98, 1.06) * uFogStorm.y;
@@ -512,6 +513,8 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
   if (sf > 0.0 && tcurtain > 0.0) {
     vec3 aLc, aTc;
     aerial(dir, min(tcurtain, L) * 1e-3, aLc, aTc);
+    // (by moonlight the haze in front of a distant curtain stands in the storm's shadow)
+    if (uLightMag > -20.0) aLc *= 0.35;
     curtain = curtain * aTc + aLc;
   }
   return mix(mix(fogRadiance(dir, uHazeSun), curtain, sf), col, T);

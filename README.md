@@ -139,8 +139,17 @@ produces so far.
 | ![Beaufort 5: render vs photo](media/compare-beaufort-5.jpg) | ![Beaufort 7: render vs photo](media/compare-beaufort-7.jpg) | ![Beaufort 9: render vs photo](media/compare-beaufort-9.jpg) |
 
 A multi-agent review compared 13 scenes with real photographs and had independent judges confirm
-each discrepancy. A second adversarial code review then confirmed 30 bugs, every one fixed.
+each discrepancy. A second adversarial code review then confirmed 30 bugs, every one fixed. In
+later rounds two critics per scene (a photographer and an ocean and atmosphere physicist) scored
+the renders against some 60 reference photographs (Wikimedia Commons, NOAA), a verifier
+confirmed each issue, and a regression judge compared every scene with the previous round.
 Problems found and fixed this way included:
+- Rain blacking out the day: the rain was lit by its own dimmed light, leaving only warm stray sun.
+- Khaki, mottled storm seas: a rough sea averaged the sun's aureole into every sky reflection.
+- Cloud history lagging behind the film's time-lapse squall front as feathered echo bands.
+- Contour bands on storm bases from ray-march samples at identical depths.
+- A cloud march that ran out of steps before reaching a storm 20 km away.
+- The storm sea's directional spreading computed but never applied.
 - Sun glitter rendered as a milky sheet instead of sparkles.
 - Whitecaps missing at Bf 5.
 - Overcast decks without texture (a flat base and too little thickness variation).

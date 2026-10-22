@@ -169,7 +169,9 @@ float shelfDensity(vec3 p, float h) {
   tiers *= smoothstep(0.2, 0.55, n.r * 0.55 + n2.r * 0.55);
   float nose = smoothstep(0.0, 0.05 + 0.08 * n.r, u);
   float body = smoothstep(0.0, 0.1, tz) * (1.0 - smoothstep(0.75, 1.0, tz));
-  return nose * body * tiers * smoothstep(0.3, 0.62, n.r * 0.75 + 0.4) * uStormA.z * 3.0;
+  // (seen from far off, below the storm's base, the wedge would read as flat slabs on the horizon)
+  float far = 1.0 - smoothstep(10000.0, 18000.0, gFoot / max(uPixelAngle, 1e-6));
+  return nose * body * tiers * smoothstep(0.3, 0.62, n.r * 0.75 + 0.4) * uStormA.z * 3.0 * far;
 }
 
 float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top) {
@@ -186,6 +188,8 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     if (sh <= 0.0) return 0.0;
     float frag = n2.r * 0.7 + n2.g * 0.3;
     float d2 = smoothstep(0.6, 0.9, frag) * (0.4 + 0.6 * n2.b) * smoothstep(0.0, 0.35, sh) * (1.0 - smoothstep(0.55, 1.0, sh));
+    // (a near-field feature: at the horizon it would read as flat slabs under the storm)
+    d2 *= 1.0 - smoothstep(9000.0, 16000.0, gFoot / max(uPixelAngle, 1e-6));
     return d2 * R.z * sg * 0.5;
   }
   if (h > top) return shelf;
@@ -416,7 +420,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // above no longer lets skylight through
       // (a storm face: its shadowed sides fall to ~30% of the sunlit side)
       amb += ambFace * (1.0 - diffUp) * smoothstep(0.5, 0.9, R.x) * mix(1.0, 0.55, R.w) * mix(1.0, smoothstep(0.03, 0.25, hf), step(0.5, R.y)) * mix(1.0, 0.4, step(0.5, R.y) * R.w);
-      if (h < base) amb *= 0.6; // scud: fragments in the deck's shade read darker than the deck
+      if (h < base) amb *= 0.3; // scud: fragments in the deck's shade read darker than the deck
       vec3 S = (sun + amb) * sigma;
       if (uFlash.w > 0.0) {
         float fd = length(p - uFlash.xyz);
