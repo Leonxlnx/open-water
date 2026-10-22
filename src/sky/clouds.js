@@ -144,39 +144,7 @@ vec4 regime(vec2 xz, float h, out float base, out float top) {
   return vec4(mix(uCoverage, uStormA.x, smoothstep(0.0, 0.35, m)), mix(uDark, uStormA.y, smoothstep(0.0, 0.2, m)), mix(uDensity, uStormA.z, m), m);
 }
 
-// Shelf cloud (arcus): a low wedge along the gust front ahead of the rain. Its nose hangs lowest
-// at the leading edge, the face steps up in laminar tiers and merges into the storm's base.
-float shelfDensity(vec3 p, float h) {
-  if (uFront.w <= 0.0 || uStormA.y < 0.5) return 0.0;
-  float d = frontDist(p.xz);
-  // the face leans back with height (~25 deg)
-  float dl = d + (h - 260.0) * 2.2;
-  if (dl < -3400.0 || d > 1600.0) return 0.0;
-  float u = clamp((dl + 3400.0) / 5000.0, 0.0, 1.0);
-  vec3 sp = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / vec3(2400.0, 700.0, 2400.0);
-  vec4 n = textureLod(uShape, sp, lodFor(2400.0 / 128.0));
-  // ragged, lumpy underside
-  float sb = mix(260.0, uStormA.w, smoothstep(0.1, 0.95, u)) + (n.b - 0.5) * 160.0;
-  float st = uStormA.w + 450.0;
-  if (h < sb || h > st) return 0.0;
-  float tz = (h - sb) / max(st - sb, 1.0);
-  // turbulent lumps at ~150-300 m on the face
-  vec4 n2 = textureLod(uShape, (p + vec3(uWindOffset.x, 0.0, uWindOffset.z)) / vec3(700.0, 300.0, 700.0) + 0.31, lodFor(700.0 / 128.0));
-  // laminar rolls parallel to the gust front, varying along it
-  float along = dot(p.xz, vec2(-uFront.y, uFront.x));
-  float tiers = mix(0.45, 1.0, smoothstep(0.3, 0.7, 0.5 + 0.5 * sin(h * 0.042 + n.g * 0.8 + along / 900.0)));
-  tiers = mix(1.0, tiers, smoothstep(0.2, 0.35, tz));
-  tiers *= smoothstep(0.2, 0.55, n.r * 0.55 + n2.r * 0.55);
-  float nose = smoothstep(0.0, 0.05 + 0.08 * n.r, u);
-  float body = smoothstep(0.0, 0.1, tz) * (1.0 - smoothstep(0.75, 1.0, tz));
-  // (seen from far off, below the storm's base, the wedge would read as flat slabs on the horizon)
-  float far = 1.0 - smoothstep(10000.0, 18000.0, gFoot / max(uPixelAngle, 1e-6));
-  return nose * body * tiers * smoothstep(0.3, 0.62, n.r * 0.75 + 0.4) * 0.2 * far;
-}
-
 float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top) {
-  float shelf = shelfDensity(p, h);
-  if (shelf > 0.0 && h < base) return shelf;
   // scud (fractus): ragged low fragments racing under a storm deck
   if (h < base) {
     float sg = uFront.w > 0.0 ? smoothstep(0.5, 0.85, R.w) * (1.0 - smoothstep(5000.0, 9000.0, frontDist(p.xz))) : smoothstep(0.5, 0.9, R.y);
@@ -192,7 +160,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     d2 *= 1.0 - smoothstep(3000.0, 8000.0, gFoot / max(uPixelAngle, 1e-6));
     return d2 * min(R.z, 0.07) * sg * 0.5;
   }
-  if (h > top) return shelf;
+  if (h > top) return 0.0;
   float hf = (h - base) / (top - base);
   float cov = R.x, dark = R.y;
   vec2 wuv = (p.xz + uWindOffset.xz) / 30000.0;
@@ -200,7 +168,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   float c = smoothstep(1.0 - cov - 0.18, 1.0 - cov + 0.2, wm.r * 0.85 + wm.b * 0.25 * cov);
   // an overcast deck is closed: no column-shaped gaps from the 2D coverage map
   c = max(c, smoothstep(0.82, 0.96, cov));
-  if (c <= 0.001) return shelf;
+  if (c <= 0.001) return 0.0;
   // shape noise: ~350 m billows for cumulus, ~750 m cells for storm decks (blended in between)
   vec3 wo = vec3(uWindOffset.x, 0.0, uWindOffset.z);
   vec4 n = textureLod(uShape, (p + wo) / 3000.0, uShapeLod < 0.0 ? lodFor(3000.0 / 128.0) : uShapeLod);
@@ -234,9 +202,10 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   c *= mix(mix(0.8, 1.0, smoothstep(0.0, 0.12, hf)), 1.0, dark);
   // coverage erodes with height (Schneider 2017): the cloud narrows upward into turrets
   d = remapc(d, 1.0 - c * mix(1.0, 0.55, hf * (1.0 - dark)), 1.0, 0.0, 1.0) * c;
-  if (d <= 0.0) return shelf;
+  if (d <= 0.0) return 0.0;
   if (detail) {
-    vec3 dp = (p + uWindOffset * vec3(1.15, 1.0, 1.15)) / 420.0;
+    // (a cumulonimbus billows at ~1 km, a fair-weather cumulus at ~400 m)
+    vec3 dp = (p + uWindOffset * vec3(1.15, 1.0, 1.15)) / mix(420.0, 1100.0, smoothstep(0.6, 0.9, dark));
     vec3 dn = textureLod(uDetail, dp, lodFor(420.0 / 32.0)).rgb;
     float df = dn.r * 0.625 + dn.g * 0.25 + dn.b * 0.125;
     // a finer octave (~140 m) for cauliflower lobes
@@ -250,9 +219,10 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     float thr = dm * mix(0.55, 0.45, dark) * mix(1.0, 0.3, smoothstep(0.88, 0.97, cov)) * (anvilSlab ? 0.0 : 1.0);
     // (a fair-weather base is flat: the detail erodes it only a little)
     thr *= mix(mix(0.35, 1.0, smoothstep(0.02, 0.12, hf)), 1.0, dark);
+    thr *= mix(1.0, 0.7, smoothstep(0.6, 0.9, dark));
     d = clamp(remapc(d, thr, thr + (1.0 - thr) * mix(0.25, 0.5, dark), 0.0, 1.0), 0.0, 1.0);
   }
-  return max(max(d, 0.0) * R.z, shelf);
+  return max(d, 0.0) * R.z;
 }
 float cloudDensity(vec3 p, float h, bool detail) {
   float base, top;

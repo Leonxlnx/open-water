@@ -12,9 +12,12 @@ const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 
 function noiseBuffer(ctx, seconds, color, seed = 1) {
   const n = Math.floor(ctx.sampleRate * seconds);
-  const buf = ctx.createBuffer(2, n, ctx.sampleRate);
+  const f = Math.floor(ctx.sampleRate * 0.25);
+  // the loop is n - f samples long: its start is crossfaded from the f samples that follow its end,
+  // so the wrap is continuous (a buffer of n samples would jump back at every loop: a click)
+  const buf = ctx.createBuffer(2, n - f, ctx.sampleRate);
   for (let ch = 0; ch < 2; ch++) {
-    const d = buf.getChannelData(ch);
+    const d = new Float32Array(n);
     let s = (seed + ch * 101) >>> 0;
     const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296 * 2 - 1; };
     let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0, br = 0;
@@ -28,15 +31,14 @@ function noiseBuffer(ctx, seconds, color, seed = 1) {
         br = (br + 0.02 * w) / 1.02; d[i] = br * 3.5;
       } else d[i] = w * 0.5;
     }
-    // crossfade ends for a seamless loop
-    const f = Math.floor(ctx.sampleRate * 0.25);
     for (let i = 0; i < f; i++) { const a = i / f; d[i] = d[i] * a + d[n - f + i] * (1 - a); }
+    buf.getChannelData(ch).set(d.subarray(0, n - f));
   }
   return buf;
 }
 
 // Noise burst with an attack/decay envelope (mono), shaped further by a band-pass at play time.
-function burstBuffer(ctx, seconds, attack, decay, seed) {
+function burstBuffer(ctx, seconds, attack, decay, seed, smooth = 0.35) {
   const n = Math.floor(ctx.sampleRate * seconds);
   const buf = ctx.createBuffer(1, n, ctx.sampleRate);
   const d = buf.getChannelData(0);
@@ -44,7 +46,7 @@ function burstBuffer(ctx, seconds, attack, decay, seed) {
   for (let i = 0; i < n; i++) {
     s = (s * 1664525 + 1013904223) >>> 0;
     const w = s / 4294967296 * 2 - 1;
-    lp += (w - lp) * 0.35;
+    lp += (w - lp) * smooth;
     const t = i / ctx.sampleRate;
     const env = t < attack ? t / attack : Math.exp(-(t - attack) / decay);
     d[i] = lp * env * 1.6;
@@ -104,7 +106,7 @@ export class AudioEngine {
     }
     this.fizz = chain(loop(white, 0.93), filt('highpass', 4200), filt('lowpass', 13000), gain());
     // one-shot sources: a short wet slap (fast attack, ~0.12 s decay) and a longer breaking whoosh
-    this.slapBuf = burstBuffer(ctx, 0.45, 0.004, 0.11, 21);
+    this.slapBuf = burstBuffer(ctx, 0.5, 0.02, 0.15, 21, 0.06);
     this.whooshBuf = burstBuffer(ctx, 2.2, 0.35, 0.9, 33);
     this.scheduledUntil = 0;
     this.ctx = ctx; // published last: tick()/thunder() treat a set ctx as a complete graph
@@ -158,12 +160,12 @@ export class AudioEngine {
   events(t0, t1, p) {
     const slot = 0.125;
     const windN = clamp((p.wind - 2) / 23, 0, 1);
-    const slapRate = 0.8 + 1.2 * clamp(p.hs / 4, 0, 1.5);           // per second
+    const slapRate = 0.3 + 0.9 * clamp(p.hs / 4, 0, 1.5);           // per second
     const breakRate = 6 * Math.sqrt(clamp(p.foam, 0, 0.4));          // per second
     for (let s = Math.ceil(t0 / slot); s * slot < t1; s++) {
       const h = hash(s * 1.37 + 0.5), h2 = hash(s * 2.11 + 9.1), h3 = hash(s * 0.71 + 3.3);
       const at = s * slot + h2 * slot;
-      if (h < slapRate * slot) this.voice(this.slapBuf, at, 0.05 + 0.11 * h3 * (0.5 + clamp(p.hs / 3, 0, 1)), 0.75 + h2 * 0.6, 420 + 900 * h3, (h3 - 0.5) * 0.8);
+      if (h < slapRate * slot) this.voice(this.slapBuf, at, (0.05 + 0.11 * h3 * (0.5 + clamp(p.hs / 3, 0, 1))) * 1.4, 0.75 + h2 * 0.5, 160 + 340 * h3, (h3 - 0.5) * 0.8);
       if (hash(s * 3.9 + 1.7) < breakRate * slot) this.voice(this.whooshBuf, at, (0.06 + 0.16 * windN) * (0.4 + h3), 0.8 + h * 0.4, 1600 + 2400 * h2, (h2 - 0.5) * 1.4);
     }
   }

@@ -19,13 +19,15 @@ const ACT1 = {
 
 const ACT2 = {
   start: 17, end: 48,
+  // the sky clouds over as the storm arrives (cumulus building into a dark, lowering deck), then the
+  // rain and the gale: no front line sweeping overhead in time-lapse
   weather: [
-    [17, { wind: 9, windDir: 230, clouds: 0.2, cloudDark: 0.05, cloudBase: 1300, rain: 0, mist: 0, haze: 0.7, choppy: 0.9, waveScale: 1, swellHs: 1.4, swellDir: 215, sunElev: 38, sunAz: 100, lightning: 0, fetch: 900,
-      front: 1, frontDist: 36000, frontAz: 52, frontWidth: 2600, sClouds: 0.97, sDark: 0.9, sBase: 650, sRain: 0.6, sMist: 0.15 }],
-    [26, { wind: 12, frontDist: 21000, haze: 0.8, choppy: 0.95, swellHs: 1.7 }],
-    [33, { wind: 17, frontDist: 2500, haze: 2.0, choppy: 1.12, swellHs: 2.2, fetch: 400 }],
-    [40, { wind: 22, frontDist: -4000, haze: 3, choppy: 1.25, swellHs: 3.5, sRain: 0.85, sMist: 0.25 }],
-    [48, { wind: 23.5, frontDist: -6000, haze: 3, choppy: 1.25, swellHs: 3.8 }],
+    [17, { wind: 9, windDir: 230, clouds: 0.4, cloudDark: 0.1, cloudBase: 1300, rain: 0, mist: 0, haze: 0.8, choppy: 0.9, waveScale: 1, swellHs: 1.4, swellDir: 215, sunElev: 38, sunAz: 100, lightning: 0, fetch: 900,
+      front: 0 }],
+    [26, { wind: 12, clouds: 0.7, cloudDark: 0.4, cloudBase: 1050, haze: 1.0, choppy: 0.95, swellHs: 1.7 }],
+    [33, { wind: 17, clouds: 0.93, cloudDark: 0.75, cloudBase: 800, rain: 0.3, mist: 0.1, haze: 1.6, choppy: 1.12, swellHs: 2.2, fetch: 400 }],
+    [40, { wind: 22, clouds: 0.97, cloudDark: 0.9, cloudBase: 650, rain: 0.8, mist: 0.25, haze: 2.5, choppy: 1.25, swellHs: 3.5 }],
+    [48, { wind: 23.5, clouds: 0.97, cloudDark: 0.9, cloudBase: 650, rain: 0.85, mist: 0.25, haze: 2.5, choppy: 1.25, swellHs: 3.8 }],
   ],
   camera: [
     [17, { yaw: 62, pitch: 3.2, eye: 2.6, fov: 46 }],

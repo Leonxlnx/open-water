@@ -478,7 +478,7 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     shafts = max(shafts, smoothstep(-w, w, s0) * (0.35 + 0.6 * fogNoise(along / 700.0 + 2.0)) * (1.0 - 0.35 * smoothstep(0.2, 0.6, dir.y)));
     // curtains fade out into the cloud base instead of ending at a ruler-straight line
     float hcr = max(dir.y * max(tc, 0.0), 0.0);
-    float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.0, uFogTop * (0.55 + 0.7 * fogNoise(along / 1300.0)), hcr));
+    float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.8 * uFogTop, uFogTop, hcr));
     st = min(st, mix(3.0 * shafts + 0.6, 1e4, smoothstep(-w, w, s0)));
     tau += st;
     stormFrac = st / max(tau, 1e-6);
