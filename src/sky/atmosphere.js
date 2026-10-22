@@ -42,11 +42,10 @@ float raySphere(vec3 ro, vec3 rd, float R) {
 }
 
 float rayleighPhase(float c) { return 3.0 / (16.0 * PI) * (1.0 + c * c); }
+float hgPhase(float c, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * PI * pow(max(1.0 + g2 - 2.0 * g * c, 1e-4), 1.5)); }
 float miePhase(float c, float g) {
-  // Cornette-Shanks
-  float g2 = g * g;
-  float k = 3.0 / (8.0 * PI) * (1.0 - g2) / (2.0 + g2);
-  return k * (1.0 + c * c) / pow(max(1.0 + g2 - 2.0 * g * c, 1e-4), 1.5);
+  // maritime aerosol: a sharp forward lobe (a compact aureole) and a little backscatter
+  return 0.9 * hgPhase(c, g) + 0.1 * hgPhase(c, -0.3);
 }
 
 vec2 transmittanceUv(float r, float mu) {
@@ -252,7 +251,7 @@ export class Atmosphere {
       uMie: [mieScat, mieExt],
       uMieH: 1.2,
       uOzone: [0.65e-3, 1.881e-3, 0.085e-3],
-      uMieG: 0.78,
+      uMieG: 0.85,
     };
   }
 
