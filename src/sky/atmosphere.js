@@ -45,7 +45,7 @@ float rayleighPhase(float c) { return 3.0 / (16.0 * PI) * (1.0 + c * c); }
 float hgPhase(float c, float g) { float g2 = g * g; return (1.0 - g2) / (4.0 * PI * pow(max(1.0 + g2 - 2.0 * g * c, 1e-4), 1.5)); }
 float miePhase(float c, float g) {
   // maritime aerosol: a sharp forward lobe (a compact aureole) and a little backscatter
-  return 0.9 * hgPhase(c, g) + 0.1 * hgPhase(c, -0.3);
+  return 0.45 * hgPhase(c, 0.95) + 0.47 * hgPhase(c, 0.65) + 0.08 * hgPhase(c, -0.3);
 }
 
 vec2 transmittanceUv(float r, float mu) {
@@ -450,7 +450,7 @@ uniform vec2 uFogCam;     // camera xz
 // antiderivative of the linear ramp clamp((u + w) / 2w, 0, 1)
 float rampInt(float u, float w) { return u < -w ? 0.0 : (u > w ? u : (u + w) * (u + w) / (4.0 * w)); }
 float fogHash(float x) { return fract(sin(x * 91.17) * 43758.5453); }
-float fogNoise(float x) { float i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f); return mix(fogHash(i), fogHash(i + 1.0), f); }
+float fogNoise(float x) { float i = floor(x), f = fract(x); f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0); return mix(fogHash(i), fogHash(i + 1.0), f); }
 uniform vec2 uSprayHaze;  // x: extinction at the sea surface (1/m), y: camera height (m)
 vec3 applyFog(vec3 col, vec3 dir, float dist) {
   float L = fogPathLength(dir, dist);
@@ -472,13 +472,14 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     vec2 xc = uFogCam + dir.xz * (tc > 0.0 ? tc : min(L, 2500.0));
     float along = dot(xc, vec2(-n.y, n.x));
     // peaked shafts (no plateaus: a plateau reads as a slab with straight sides)
-    float shafts = 0.02 + 3.2 * pow(fogNoise(along / 2200.0), 2.5) * (0.6 + 0.4 * fogNoise(along / 430.0 + 7.0));
+    float sh0 = fogNoise(along / 2200.0) * 0.6 + fogNoise(along / 1370.0 + 3.1) * 0.4;
+    float shafts = 0.15 + 3.0 * pow(sh0, 2.0) * (0.6 + 0.4 * mix(fogNoise(along / 430.0 + 7.0), 0.5, smoothstep(6000.0, 15000.0, max(tc, 0.0))));
     // under the downpour the veil closes round the viewer, densest low down; the base shows above
     shafts = max(shafts, smoothstep(-w, w, s0) * (0.35 + 0.6 * fogNoise(along / 700.0 + 2.0)) * (1.0 - 0.35 * smoothstep(0.2, 0.6, dir.y)));
     // curtains fade out into the cloud base instead of ending at a ruler-straight line
     float hcr = max(dir.y * max(tc, 0.0), 0.0);
-    float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.1 * uFogTop, uFogTop * (0.9 + 0.5 * fogNoise(along / 900.0)), hcr));
-    st = min(st, mix(3.0 * shafts + 0.1, 1e4, smoothstep(-w, w, s0)));
+    float st = max(uFogStorm.x * shafts - uFogDensity, 0.0) * max(m, 0.0) * (1.0 - smoothstep(0.0, uFogTop * (0.55 + 0.7 * fogNoise(along / 1300.0)), hcr));
+    st = min(st, mix(3.0 * shafts + 0.6, 1e4, smoothstep(-w, w, s0)));
     tau += st;
     stormFrac = st / max(tau, 1e-6);
     // fine vertical streaks of falling rain, slanted by the wind, where the ray meets the curtain
@@ -487,14 +488,14 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
     float near = 1.0 - smoothstep(1500.0, 5000.0, max(tc, 0.0));
     // domain-warped, multi-octave: no evenly spaced stripes
     float a2 = along / 1700.0 + 0.6 * fogNoise(along / 600.0);
-    float streak = (fogNoise(a2 * 1.9 + hc / 1400.0) * 0.5 + fogNoise(a2 * 4.1 + hc / 900.0 + 3.3) * 0.3 + fogNoise(a2 * 8.7 + 5.1) * 0.2) * 0.6 + near * (fogNoise(along / 260.0 + hc / 500.0 + 3.0) * 0.28 + fogNoise(along / 85.0 + hc / 180.0 + 9.0) * 0.12) + (1.0 - near) * 0.2;
+    float streak = (fogNoise(a2 * 1.9 + hc / 1400.0) * 0.5 + mix(0.5, fogNoise(a2 * 4.1 + hc / 900.0 + 3.3), 1.0 - smoothstep(4000.0, 10000.0, max(tc, 0.0))) * 0.3 + mix(0.5, fogNoise(a2 * 8.7 + 5.1), 1.0 - smoothstep(4000.0, 10000.0, max(tc, 0.0))) * 0.2) * 0.6 + near * (fogNoise(along / 260.0 + hc / 500.0 + 3.0) * 0.28 + fogNoise(along / 85.0 + hc / 180.0 + 9.0) * 0.12) + (1.0 - near) * 0.2;
     // (far curtains: the streaks merge; only the broad shafts remain)
-    stormFrac *= mix(0.85 + 0.3 * streak, 0.72 + 0.5 * streak, near);
+    stormFrac *= mix(0.92 + 0.16 * streak, 0.72 + 0.5 * streak, near);
     tcurtain = max(tc, 0.0);
   }
   // wind-borne spray hugging the sea (scale height H ~ 20 m): integral of exp(-h/H) along the ray
   if (uSprayHaze.x > 0.0) {
-    const float Hs = 20.0;
+    const float Hs = 25.0;
     float Ls = min(dist, tcurtain > 0.0 ? tcurtain : 12000.0);
     float d = dir.y;
     float h0 = uSprayHaze.y;
@@ -508,14 +509,14 @@ vec3 applyFog(vec3 col, vec3 dir, float dist) {
   float behind = uFogFront.w > 0.0 && uLightMag < -20.0 ? smoothstep(0.05, 0.5, -dot(normalize(uSunDir.xz + 1e-5), uFogFront.xy)) : 0.0;
   // (sunlit rain is a neutral grey-white: large drops scatter all wavelengths alike)
   vec3 lit = vec3(dot(fogRadiance(dir, 0.6), vec3(0.2126, 0.7152, 0.0722))) * vec3(0.95, 0.98, 1.03) * 0.55;
-  vec3 shade = vec3(dot(fogRadiance(dir, 0.0), vec3(0.2126, 0.7152, 0.0722))) * vec3(0.92, 0.98, 1.06) * uFogStorm.y;
+  vec3 shade = vec3(dot(fogRadiance(dir, 0.0), vec3(0.2126, 0.7152, 0.0722))) * vec3(0.92, 0.98, 1.06) * uFogStorm.y * mix(0.8, 1.15, smoothstep(-0.02, 0.35, dir.y));
   vec3 curtain = mix(shade, lit, behind);
   // the haze between the viewer and the curtain
   if (sf > 0.0 && tcurtain > 0.0) {
     vec3 aLc, aTc;
     aerial(dir, min(tcurtain, L) * 1e-3, aLc, aTc);
     // (by moonlight the haze in front of a distant curtain stands in the storm's shadow)
-    if (uLightMag > -20.0) aLc *= 0.35;
+    if (uLightMag > -20.0) aLc *= 0.6;
     curtain = curtain * aTc + aLc;
   }
   return mix(mix(fogRadiance(dir, uHazeSun), curtain, sf), col, T);

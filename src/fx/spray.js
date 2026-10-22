@@ -56,10 +56,10 @@ void main() {
   along = al > 0.2 ? along / al : right;
   vec3 up = normalize(cross(vdir, along));
   // further away a sheet is smeared over more of its drift: longer
-  vec3 P = pos + along * c.x * size * mix(2.4, 8.0, smoothstep(20.0, 150.0, dist)) * mix(0.35, 1.0, smoothstep(0.2, 0.6, al)) + up * c.y * size * 0.7;
+  vec3 P = pos + along * c.x * size * mix(2.4, 4.0, smoothstep(20.0, 150.0, dist)) * mix(0.35, 1.0, smoothstep(0.2, 0.6, al)) + up * c.y * size * 0.7;
   vAlong = smoothstep(0.2, 0.6, al);
   vUv = c + 0.5;
-  vAlpha = alive * sin(3.14159 * age) * (1.0 - smoothstep(uRadius * 0.6, uRadius, dist)) * smoothstep(15.0, 40.0, dist);
+  vAlpha = alive * sin(3.14159 * age) * (1.0 - smoothstep(uRadius * 0.6, uRadius, dist)) * smoothstep(15.0, 40.0, dist) * (1.0 - smoothstep(60.0, 120.0, dist));
   vDist = dist;
   gl_Position = uViewProj * vec4(P, 1.0);
 }`;
@@ -81,7 +81,7 @@ void main() {
   // streaky along the wind; seen end-on (no length to streak) an isotropic puff
   vec2 sc = mix(vec2(6.0, 6.0), vec2(2.5, 11.0), vAlong);
   float n = vn(vUv * sc) * 0.6 + vn(vUv * sc * 2.2 + 3.1) * 0.4;
-  float a = exp(-r * 2.2) * smoothstep(0.35, 0.85, n) * vAlpha * 0.8;
+  float a = exp(-r * 2.2) * smoothstep(0.35, 0.85, n) * vAlpha * 0.5;
   // fine droplets scatter skylight and sun (forward-scattering, like mist)
   // fine droplets scatter all wavelengths alike: the grey of the light around them
   vec3 Lc = skyIrradiance() * (0.9 / 3.14159) + sunIlluminance() * uHazeSun * max(uSunDir.y, 0.0) * 0.35 + uFlash * 0.3;
@@ -109,7 +109,7 @@ export class Spray {
   }
 
   draw(u) {
-    const strength = Math.min(Math.max((u.wind - 13) / 9, 0), 1);
+    const strength = Math.min(Math.max((u.wind - 16) / 8, 0), 1);
     if (strength <= 0) return;
     const gl = this.gl;
     gl.enable(gl.BLEND);

@@ -54,7 +54,7 @@ twenty seconds in a gale and fades out as it thins, and at gale force gathers in
 meandering wind rows tens of metres long. Fresh caps have an opaque white core; foam is a
 translucent layer over the water, never darker than it. The breaking
 threshold is expressed in standard deviations of the Jacobian and calibrated so coverage follows
-the Monahan & O'Muircheartaigh (1980) whitecap law within about 10% from 8 to 21 m/s, with active
+the Monahan & O'Muircheartaigh (1980) whitecap law within about 20% from 8 to 21 m/s, with active
 breaking about 35-55% of it
 (`tools/foam.mjs`).
 
@@ -63,7 +63,7 @@ and aerial-perspective LUTs. Clouds are volumetric, built from procedural Perlin
 with Beer–powder lighting, Wrenninge multiple-scattering octaves and two-stream diffusion
 through thick storm decks (a deck transmits E·μ₀·T/π). Faces turned to the camera reflect the
 sky and sea light behind it, so a storm's shadowed side is dark blue-grey, not black and not
-glowing. The marine aerosol scatters with a two-lobe phase function (a sharp forward lobe: a compact aureole) and has a realistic load (visibility around 100 km in clean air, a few
+glowing. The marine aerosol scatters with a three-lobe phase function (a sharp core inside a graded aureole, a little backscatter) and has a realistic load (visibility around 100 km in clean air, a few
 tens of km in a storm), which gives the solar aureole, hazy golden horizons and distant clouds
 fading out. The cloud pass also records how far away its light comes from, so rain and mist are
 drawn in front of a cloud only up to that distance: a shelf cloud stands in front of its rain.
@@ -123,7 +123,7 @@ photography. The measurable parts are checked with tools:
 | --- | --- | --- |
 | Significant wave height, Bf 5 / 7 / 9 (`tools/hscheck.mjs`) | 2–2.5 / 4–5.5 / 7–10 m | 2.1 / 4.8 / 9.2 m |
 | GPU height variance vs. spectrum integral | equal | within sampling error (±10%) |
-| Whitecap coverage at 8.5 / 11 / 15 / 21 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 1.37 / 3.9 / 12.4 % | 0.56 / 1.41 / 4.2 / 11.1 % (pixels with foam over half opaque); actively breaking 0.32 / 0.57 / 1.4 / 4.9 % |
+| Whitecap coverage at 8.5 / 11 / 15 / 21 m/s, steady state (`tools/foam.mjs`) | Monahan 0.57 / 1.37 / 3.9 / 12.4 % | 0.52 / 1.24 / 3.2 / 12.8 % (pixels with foam over half opaque); actively breaking 0.27 / 0.46 / 1.2 / 4.5 % |
 | Thunder delay | distance / 343 m/s | exact |
 | Visibility in the heaviest rain (Koschmieder, 3.9 / β) | ~2–3 km | 3.0 km |
 | Tonal range vs. reference photos (`tools/tonestats.mjs`) | p10 ≈ 5–45, highlights ≈ 230–255 | shadows deepened, highlights reach white |

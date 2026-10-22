@@ -81,7 +81,7 @@ export class Lightning {
     for (let i = 1; i < strokes; i++) times.push(times[i - 1] + 0.04 + r() * 0.07);
     this.strike = {
       t: 0, times, ground, dist,
-      pos: [x, cloudBase + 300 + r() * 1500, z],
+      pos: [x, ground ? cloudBase + 300 + r() * 1500 : 4000 + r() * 4000, z],
       peak: 0.6 + r() * 0.8,
       duration: times[times.length - 1] + 0.35,
     };

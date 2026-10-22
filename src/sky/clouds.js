@@ -171,7 +171,7 @@ float shelfDensity(vec3 p, float h) {
   float body = smoothstep(0.0, 0.1, tz) * (1.0 - smoothstep(0.75, 1.0, tz));
   // (seen from far off, below the storm's base, the wedge would read as flat slabs on the horizon)
   float far = 1.0 - smoothstep(10000.0, 18000.0, gFoot / max(uPixelAngle, 1e-6));
-  return nose * body * tiers * smoothstep(0.3, 0.62, n.r * 0.75 + 0.4) * uStormA.z * 3.0 * far;
+  return nose * body * tiers * smoothstep(0.3, 0.62, n.r * 0.75 + 0.4) * 0.2 * far;
 }
 
 float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top) {
@@ -179,7 +179,7 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
   if (shelf > 0.0 && h < base) return shelf;
   // scud (fractus): ragged low fragments racing under a storm deck
   if (h < base) {
-    float sg = uFront.w > 0.0 ? smoothstep(0.5, 0.85, R.w) * (1.0 - smoothstep(5000.0, 9000.0, frontDist(p.xz))) : step(0.5, R.y);
+    float sg = uFront.w > 0.0 ? smoothstep(0.5, 0.85, R.w) * (1.0 - smoothstep(5000.0, 9000.0, frontDist(p.xz))) : smoothstep(0.5, 0.9, R.y);
     if (sg <= 0.0 || h < SCUD_BASE) return 0.0;
     vec3 sp2 = (p + vec3(uWindOffset.x, 0.0, uWindOffset.z) * 1.8) / vec3(1400.0, 500.0, 1400.0);
     vec4 n2 = textureLod(uShape, sp2, lodFor(1400.0 / 128.0));
@@ -189,8 +189,8 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     float frag = n2.r * 0.7 + n2.g * 0.3;
     float d2 = smoothstep(0.6, 0.9, frag) * (0.4 + 0.6 * n2.b) * smoothstep(0.0, 0.35, sh) * (1.0 - smoothstep(0.55, 1.0, sh));
     // (a near-field feature: at the horizon it would read as flat slabs under the storm)
-    d2 *= 1.0 - smoothstep(9000.0, 16000.0, gFoot / max(uPixelAngle, 1e-6));
-    return d2 * R.z * sg * 0.5;
+    d2 *= 1.0 - smoothstep(3000.0, 8000.0, gFoot / max(uPixelAngle, 1e-6));
+    return d2 * min(R.z, 0.07) * sg * 0.5;
   }
   if (h > top) return shelf;
   float hf = (h - base) / (top - base);
@@ -350,6 +350,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
     bool nearField = t * uPixelAngle < 25.0;
     float sigma = cloudDensityR(p, h, nearField, R, base, top);
     float stepLen = max(fine, min(max(t - 15000.0, 0.0) * 0.005, 150.0) * (64.0 / float(steps))) * (1.0 + t * 0.00004);
+    if (sigma > 0.0 && T > 0.05) stepLen = min(stepLen, max(1.2 / sigma, 8.0));
     if (sigma > 0.0) {
       miss = 0;
       float hf = clamp((h - base) / (top - base), 0.0, 1.0);
@@ -423,7 +424,7 @@ vec4 marchClouds(vec3 ro, vec3 rd, int steps, int lightSteps, int lightDetail, f
       // a tall storm's faces see half the sky and half the dark sea: a thick cloud returns ~0.45 of the
       // sky radiance there, not all of it (fair-weather tops are lit by the whole dome)
       amb *= mix(1.0, 0.45, smoothstep(0.5, 0.9, R.y));
-      if (h < base) amb *= 0.3; // scud: fragments in the deck's shade read darker than the deck
+      if (h < base) amb *= mix(0.3, 0.8, smoothstep(1500.0, 6000.0, t)); // scud: fragments in the deck's shade read darker than the deck
       vec3 S = (sun + amb) * sigma;
       if (uFlash.w > 0.0) {
         float fd = length(p - uFlash.xyz);
