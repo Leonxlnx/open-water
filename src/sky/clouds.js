@@ -223,7 +223,10 @@ float cloudDensityR(vec3 p, float h, bool detail, vec4 R, float base, float top)
     thr *= mix(1.0, 0.7, smoothstep(0.6, 0.9, dark));
     d = clamp(remapc(d, thr, thr + (1.0 - thr) * mix(0.25, 0.5, dark), 0.0, 1.0), 0.0, 1.0);
   }
-  return max(d, 0.0) * R.z;
+  // a storm deck seen from below is mottled because its optical thickness varies 2-3x over a few km
+  // (the base radiance goes ~1/tau): thicker, darker masses beside thinner, brighter patches
+  float thick = mix(1.0, 0.3 + 1.5 * smoothstep(0.15, 0.85, wm.b * 0.6 + n.g * 0.6 - 0.1), smoothstep(0.3, 0.7, dark));
+  return max(d, 0.0) * R.z * thick;
 }
 float cloudDensity(vec3 p, float h, bool detail) {
   float base, top;
