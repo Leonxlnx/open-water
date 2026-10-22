@@ -452,9 +452,35 @@ float rampInt(float u, float w) { return u < -w ? 0.0 : (u > w ? u : (u + w) * (
 float fogHash(float x) { return fract(sin(x * 91.17) * 43758.5453); }
 float fogNoise(float x) { float i = floor(x), f = fract(x); f = f * f * f * (f * (f * 6.0 - 15.0) + 10.0); return mix(fogHash(i), fogHash(i + 1.0), f); }
 uniform vec2 uSprayHaze;  // x: extinction at the sea surface (1/m), y: camera height (m)
+// Rain falls in cells a few km across, not as one uniform sheet: x is the rain part of uFogDensity
+// (the shower at the camera), yz the cells drift with the wind (m)
+uniform vec3 uRainCell;
+float fogNoise2(vec2 p) {
+  vec2 i = floor(p), f = fract(p);
+  f = f * f * (3.0 - 2.0 * f);
+  float n = i.x + i.y * 57.0;
+  return mix(mix(fogHash(n), fogHash(n + 1.0), f.x), mix(fogHash(n + 57.0), fogHash(n + 58.0), f.x), f.y);
+}
+float rainCell(vec2 xz) {
+  vec2 q = xz - uRainCell.yz;
+  float n = fogNoise2(q / 6000.0) * 0.65 + fogNoise2(q / 2300.0 + 7.3) * 0.35;
+  return 0.08 + 1.6 * smoothstep(0.4, 0.78, n);
+}
 vec3 applyFog(vec3 col, vec3 dir, float dist) {
   float L = fogPathLength(dir, dist);
   float tau = uFogDensity * L;
+  if (uRainCell.x > 0.0) {
+    // the rain optical depth along the ray through the cells, scaled so that the camera stands in
+    // its own shower (density uRainCell.x): gaps open between the cells, curtains hang in others
+    float L2 = min(L, 25000.0);
+    float c0 = max(rainCell(uFogCam), 0.35);
+    float acc = 0.0;
+    for (int i = 0; i < 8; i++) {
+      float f = (float(i) + 0.5) / 8.0;
+      acc += min(rainCell(uFogCam + dir.xz * (L2 * f * f)) / c0, 3.0) * f * 0.25;
+    }
+    tau += uRainCell.x * (L2 * acc - L);
+  }
   float stormFrac = 0.0;
   float tcurtain = 0.0;
   if (uFogFront.w > 0.0) {
