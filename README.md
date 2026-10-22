@@ -74,7 +74,10 @@ displaced by kilometre-scale 3D noise that grows with height, so the towers bulg
 Haze standing in the storm's shadow scatters no direct sunlight, and neither do its rain
 curtains. Scud races beneath the storm near the camera. Storm clouds are optically thick like real
 cumulonimbus (shaded faces at about half the sky's radiance), and the rain curtains carry broad,
-uneven shafts that reach up into the cloud base. Crepuscular rays are traced through the haze using the cloud-shadow map.
+uneven shafts that reach up into the cloud base. A storm deck is mottled from below, its optical thickness
+varying two- to threefold over a few kilometres, and rain falls in drifting cells a few kilometres across
+rather than as one uniform sheet, so light rain leaves gaps that show the deck and the sea beyond.
+Crepuscular rays are traced through the haze using the cloud-shadow map.
 Spindrift is torn off actively breaking crests at gale force and drawn out along the wind, and
 spray haze hugs the sea.
 
