@@ -198,9 +198,10 @@ export class AudioEngine {
 
   // Thunder from a strike at distance (m): delay by the speed of sound, air absorption removes
   // highs with distance (the crack becomes a rumble), level falls ~1/r with a floor.
-  thunder(at, dist, power = 1, seed = Math.random()) {
+  // until: the end of its film act (the last crack may carry briefly over the cut, then fades)
+  thunder(at, dist, power = 1, seed = Math.random(), until = Infinity) {
     const ctx = this.ctx;
-    if (!ctx) return;
+    if (!ctx || at + dist / 343 > until - 0.6) return;
     const close = dist < 2200 && this.buffers.thunder_close;
     const name = close ? 'thunder_close' : THUNDER_FILES[Math.floor(seed * THUNDER_FILES.length) % THUNDER_FILES.length];
     const buf = this.buffers[name];
@@ -218,6 +219,7 @@ export class AudioEngine {
     if (pan) { pan.pan.value = (seed - 0.5) * 0.9; n = n.connect(pan); }
     n.connect(this.bus);
     src.start(at + dist / 343);
+    if (Number.isFinite(until)) { g.gain.setTargetAtTime(0, until - 0.8, 0.25); src.stop(until + 1); }
   }
 }
 
@@ -230,7 +232,7 @@ export async function renderSoundtrack(duration, paramsAt, strikes, sampleRate =
     eng.apply(t, paramsAt(t), 0.08);
     eng.master.gain.setTargetAtTime(eng.volume * gainAt(t), t, 0.06);
   }
-  strikes.forEach((s, i) => eng.thunder(s.t, s.dist, s.power, (i * 0.618 + 0.13) % 1));
+  strikes.forEach((s, i) => eng.thunder(s.t, s.dist, s.power, (i * 0.618 + 0.13) % 1, s.until ?? Infinity));
   return ctx.startRendering();
 }
 

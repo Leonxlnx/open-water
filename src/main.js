@@ -402,7 +402,8 @@ export class App {
       const mc = w.front > 0.5 ? smoothstep(-w.frontWidth, w.frontWidth, -w.frontDist) : 0;
       return { wind: w.wind, rain: w.rain + ((w.sRain ?? 0) - w.rain) * mc, hs, tp: (2 * Math.PI * Math.max(w.wind, 1)) / (0.855 * 9.81), foam: Math.min(2 * 3.84e-6 * Math.pow(w.wind, 3.41), 0.4) };
     };
-    const strikes = film.strikes.map((s) => ({ t: s.t, dist: s.dist, power: s.power }));
+    // a strike is heard only within its own act (the cut moves on in time)
+    const strikes = film.strikes.map((s) => ({ t: s.t, dist: s.dist, power: s.power, until: (film.acts.find((a) => a.start > s.t)?.start ?? Infinity) + 1.2 }));
     // sound follows the picture fades, but only dips (not silence) at the cut between acts
     const gainAt = (t) => Math.max(film.fadeAt(t), film.acts.slice(1).some((a) => Math.abs(t - a.start) < 1) ? 0.35 : 0);
     const buf = await renderSoundtrack(film.duration, paramsAt, strikes, 48000, gainAt);
